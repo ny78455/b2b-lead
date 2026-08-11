@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import "./globals.css";
-import Navigation from "@/components/Navigation";
+import "../components/Navigation";
+import Navigation from "../components/Navigation";
 
 export const metadata: Metadata = {
   title: "B2B Outreach MVP",
