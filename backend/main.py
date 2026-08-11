@@ -5,6 +5,8 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import traceback
 
 from backend.routers import leads, enrich, campaigns, replies, sync
 from backend.services.reply_poller import poll_forever
@@ -28,6 +30,15 @@ app = FastAPI(
     version="0.1",
     lifespan=lifespan,
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    # Ensure CORS headers are attached even on 500 crashes (like DB connection failures)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "error": str(exc)},
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
 
 app.add_middleware(
     CORSMiddleware,
