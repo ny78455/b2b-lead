@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { fetchLeads } from '@/lib/api';
-import CompanyTable, { Company } from '@/components/CompanyTable';
+import { fetchLeads } from '../lib/api';
+import CompanyTable, { Company } from '../components/CompanyTable';
 
 export default function CRMDashboard() {
   const [companies, setCompanies] = useState<Company[]>([]);

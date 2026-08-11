@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { fetchReplies } from '@/lib/api';
-import StatusChip from '@/components/StatusChip';
+import { fetchReplies } from '../../lib/api';
+import StatusChip from '../../components/StatusChip';
 
 export default function RepliesInbox() {
   const [replies, setReplies] = useState<any[]>([]);
