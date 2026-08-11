@@ -1,9 +1,6 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import Navigation from "@/components/Navigation";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "B2B Outreach MVP",
@@ -17,7 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`${inter.className} bg-[#0A0A0A] text-gray-100 min-h-screen flex flex-col`}>
+      <body className={`bg-[#0A0A0A] text-gray-100 min-h-screen flex flex-col font-sans`}>
         <Navigation />
         <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
           {children}
