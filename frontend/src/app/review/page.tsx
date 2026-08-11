@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { fetchPendingCampaigns } from '@/lib/api';
-import EmailPreview from '@/components/EmailPreview';
-import ScoreBadge from '@/components/ScoreBadge';
+import { fetchPendingCampaigns } from '../../lib/api';
+import EmailPreview from '../../components/EmailPreview';
+import ScoreBadge from '../../components/ScoreBadge';
 
 export default function ReviewQueue() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
