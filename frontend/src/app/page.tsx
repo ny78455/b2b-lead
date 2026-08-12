@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { fetchLeads } from '../lib/api';
+import { fetchLeads, startScraping, startBulkSending } from '../lib/api';
 import CompanyTable, { Company } from '../components/CompanyTable';
 
 export default function CRMDashboard() {
@@ -9,6 +9,8 @@ export default function CRMDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
+  const [scrapeQuery, setScrapeQuery] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -20,6 +22,38 @@ export default function CRMDashboard() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleStartCampaign = async () => {
+    if (!scrapeQuery.trim()) {
+      alert("Please enter a search query (e.g. Plumbers in Austin, TX)");
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await startScraping([scrapeQuery.trim()]);
+      alert("Campaign started! Scraping runs in the background. Refresh the page later to see new leads.");
+      setScrapeQuery('');
+    } catch (err: any) {
+      alert(`Error starting campaign: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleStartSendingMail = async () => {
+    if (!confirm("This will automatically write and send emails to ALL pending new/enriched leads. Proceed?")) return;
+    
+    setActionLoading(true);
+    try {
+      await startBulkSending();
+      alert("Bulk sending started in the background. Check back in a few minutes.");
+      setTimeout(loadData, 2000);
+    } catch (err: any) {
+      alert(`Error starting bulk send: ${err.message}`);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -59,6 +93,33 @@ export default function CRMDashboard() {
             Refresh
           </button>
         </div>
+      </div>
+
+      <div className="bg-gray-800 p-4 rounded-lg border border-gray-700 flex flex-col sm:flex-row items-center gap-4">
+        <div className="flex-1 flex gap-2 w-full">
+          <input 
+            type="text" 
+            placeholder="Search query (e.g., Plumbers in NY)" 
+            value={scrapeQuery}
+            onChange={e => setScrapeQuery(e.target.value)}
+            className="flex-1 bg-gray-900 border border-gray-700 text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+          />
+          <button 
+            onClick={handleStartCampaign}
+            disabled={actionLoading}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-colors whitespace-nowrap"
+          >
+            Start Campaign
+          </button>
+        </div>
+        <div className="hidden sm:block w-px h-8 bg-gray-700"></div>
+        <button 
+          onClick={handleStartSendingMail}
+          disabled={actionLoading}
+          className="w-full sm:w-auto px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-colors whitespace-nowrap"
+        >
+          Start Sending Mail
+        </button>
       </div>
 
       {error && (
