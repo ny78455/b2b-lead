@@ -57,3 +57,27 @@ export async function fetchReplies() {
   if (!res.ok) throw new Error('Failed to fetch replies');
   return res.json();
 }
+
+export async function startScraping(queries: string[]) {
+  const res = await fetch(`${API_BASE_URL}/scrape`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ queries }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || 'Failed to start scraping');
+  }
+  return res.json();
+}
+
+export async function startBulkSending() {
+  const res = await fetch(`${API_BASE_URL}/bulk/send`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || 'Failed to start bulk sending');
+  }
+  return res.json();
+}
