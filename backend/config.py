@@ -13,14 +13,23 @@ class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://b2b_user:b2b_pass@localhost:5432/b2b"
 
-    # ── LLM (Gemini API — Gemma model) ────────────────────────────────────────
-    GEMINI_API_KEY: str = ""
-    GEMMA_MODEL: str = "gemma-2-9b-it"        # change to gemma-2-27b-it for larger context
+    # ── LLM — Gemma 4 2B (local, PRIMARY) ────────────────────────────────────
+    # HuggingFace model ID to load locally via transformers.
+    GEMMA_LOCAL_MODEL_ID: str = "google/gemma-4-2b-it"
 
-    # ── Email sending (SendGrid) ──────────────────────────────────────────────
-    SENDGRID_API_KEY: str = ""
-    SENDER_EMAIL: str = "outreach@yourcompany.com"
+    # ── LLM — Gemini API (FALLBACK, used only when Gemma local fails) ─────────
+    # Leave GEMINI_API_KEY empty ("") to disable the fallback entirely.
+    GEMINI_API_KEY: str = ""
+    GEMMA_MODEL: str = "gemma-2-9b-it"   # Gemini API model name for the fallback
+
+    # ── Email sending (Gmail SMTP) ─────────────────────────────────────────────
+    # Use a Gmail App Password — NOT your regular account password.
+    # Enable 2-Step Verification first, then create an App Password at:
+    #   Google Account → Security → 2-Step Verification → App passwords
+    GMAIL_USER: str = "your_email@gmail.com"
+    GMAIL_APP_PASSWORD: str = ""          # 16-character App Password
     SENDER_NAME: str = "Your Name"
+    SENDER_EMAIL: str = ""                # defaults to GMAIL_USER if left blank
     SENDER_COMPANY: str = "Your Company"
 
     # ── Unsubscribe ───────────────────────────────────────────────────────────

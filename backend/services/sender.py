@@ -1,5 +1,5 @@
 """
-services/sender.py — Module 8: Email Sending (SendGrid)
+services/sender.py — Module 8: Email Sending (Gmail SMTP via smtplib)
 
 Compliance rules enforced on every send:
   1. Check suppression list — abort if suppressed.
@@ -10,15 +10,23 @@ Compliance rules enforced on every send:
 
 No email is ever sent without explicit human approval (status = 'approved').
 This service is only called AFTER a human clicks "Approve & Send" in the UI.
+
+Gmail setup:
+  - Enable 2-Step Verification on your Google account.
+  - Generate an App Password (Google Account → Security → App Passwords).
+  - Set GMAIL_USER and GMAIL_APP_PASSWORD in .env.
+  - The App Password lets smtplib authenticate without OAuth.
 """
 import hashlib
 import hmac
 import logging
+import smtplib
+import asyncio
 import time
-from datetime import datetime, date, timezone
+from datetime import datetime, timezone
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, To, From, HtmlContent, Subject
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -70,28 +78,56 @@ async def _count_sent_today(db: AsyncSession) -> int:
 def _make_unsubscribe_url(campaign_id: str) -> str:
     """
     Generate a signed unsubscribe URL.
-    The token is an HMAC of the campaign_id using the SendGrid API key as secret.
+    The token is an HMAC of the campaign_id using GMAIL_APP_PASSWORD as secret
+    (keeps behaviour identical to the former SendGrid-based implementation).
     """
-    secret = settings.SENDGRID_API_KEY.encode()
+    secret = settings.GMAIL_APP_PASSWORD.encode()
     token = hmac.new(secret, campaign_id.encode(), hashlib.sha256).hexdigest()
-    return f"{settings.UNSUBSCRIBE_BASE_URL}/api/unsubscribe?campaign_id={campaign_id}&token={token}"
+    return (
+        f"{settings.UNSUBSCRIBE_BASE_URL}/api/unsubscribe"
+        f"?campaign_id={campaign_id}&token={token}"
+    )
 
 
 def verify_unsubscribe_token(campaign_id: str, token: str) -> bool:
     """Verify the HMAC token from an unsubscribe link click."""
     expected = hmac.new(
-        settings.SENDGRID_API_KEY.encode(),
+        settings.GMAIL_APP_PASSWORD.encode(),
         campaign_id.encode(),
         hashlib.sha256,
     ).hexdigest()
     return hmac.compare_digest(expected, token)
 
 
+# ── Gmail SMTP send (blocking, run in thread) ────────────────────────────────
+
+def _smtp_send(recipient_email: str, subject: str, html_body: str) -> str:
+    """
+    Blocking SMTP send via Gmail.
+    Returns the SMTP message-id string on success.
+    Raises on any SMTP / auth error.
+    """
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"{settings.SENDER_NAME} <{settings.GMAIL_USER}>"
+    msg["To"] = recipient_email
+
+    # Attach HTML part (plain-text fallback stripped for brevity — add if needed)
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(settings.GMAIL_USER, settings.GMAIL_APP_PASSWORD)
+        server.sendmail(settings.GMAIL_USER, [recipient_email], msg.as_string())
+
+    # smtplib doesn't expose a server-assigned message-id; use the local one.
+    return msg.get("Message-Id", "")
+
+
 # ── Main send function ────────────────────────────────────────────────────────
 
 async def send_campaign(campaign_id: str, db: AsyncSession) -> dict:
     """
-    Send an approved campaign email via SendGrid.
+    Send an approved campaign email via Gmail SMTP.
     Called ONLY after human approval — never autonomously.
     """
     # Load campaign
@@ -146,21 +182,20 @@ async def send_campaign(campaign_id: str, db: AsyncSession) -> dict:
             f'<a href="{unsubscribe_url}">Unsubscribe</a></p>'
         )
 
-    # ── Send via SendGrid ──────────────────────────────────────────────────────
+    # ── Send via Gmail SMTP (in thread to avoid blocking the async event loop) ─
     try:
-        sg = SendGridAPIClient(api_key=settings.SENDGRID_API_KEY)
-        message = Mail(
-            from_email=From(settings.SENDER_EMAIL, settings.SENDER_NAME),
-            to_emails=To(recipient_email),
-            subject=Subject(campaign.subject or "Hello from our team"),
-            html_content=HtmlContent(html_body),
+        loop = asyncio.get_event_loop()
+        message_id = await loop.run_in_executor(
+            None,
+            _smtp_send,
+            recipient_email,
+            campaign.subject or "Hello from our team",
+            html_body,
         )
-        response = sg.send(message)
-        message_id = response.headers.get("X-Message-Id", "")
 
         campaign.status = "sent"
         campaign.sent_at = datetime.now(timezone.utc)
-        campaign.sendgrid_message_id = message_id
+        campaign.sendgrid_message_id = message_id  # column reused for gmail message-id
 
         # Load company and update status
         company_result = await db.execute(select(Company).where(Company.id == campaign.company_id))
@@ -169,9 +204,20 @@ async def send_campaign(campaign_id: str, db: AsyncSession) -> dict:
             company.status = "sent"
 
         await db.commit()
-        logger.info("Campaign %s sent to %s (SG msg: %s)", campaign_id, recipient_email, message_id)
+        logger.info(
+            "Campaign %s sent to %s via Gmail (msg-id: %s)",
+            campaign_id, recipient_email, message_id,
+        )
         return {"status": "sent", "message_id": message_id}
 
+    except smtplib.SMTPAuthenticationError as exc:
+        logger.error(
+            "Gmail SMTP auth failed for campaign %s. "
+            "Ensure GMAIL_USER and GMAIL_APP_PASSWORD are correct and that "
+            "you are using an App Password (not your account password). Error: %s",
+            campaign_id, exc,
+        )
+        return {"status": "failed", "message": f"Gmail auth error: {exc}"}
     except Exception as exc:
-        logger.error("SendGrid error for campaign %s: %s", campaign_id, exc)
+        logger.error("Gmail SMTP error for campaign %s: %s", campaign_id, exc)
         return {"status": "failed", "message": str(exc)}
