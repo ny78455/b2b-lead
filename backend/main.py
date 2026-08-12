@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import traceback
 
-from backend.routers import leads, enrich, campaigns, replies, sync
+from backend.routers import leads, enrich, campaigns, replies, sync, scrape, bulk
 from backend.services.reply_poller import poll_forever
 
 
@@ -53,6 +53,8 @@ app.include_router(enrich.router)
 app.include_router(campaigns.router)
 app.include_router(replies.router)
 app.include_router(sync.router)
+app.include_router(scrape.router)
+app.include_router(bulk.router)
 
 @app.get("/health")
 def health_check():
