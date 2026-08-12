@@ -1,5 +1,6 @@
 """
-services/llm.py — Single Gemma client wrapping google-generativeai.
+services/llm.py — LLM client: Gemma 4 2B (local, via transformers) PRIMARY
+                               Gemini API (google-generativeai)      FALLBACK
 
 All 5 LLM use-cases in the MVP flow through this module:
   1. generate_queries()   — Module 1: expand seed niches to Maps search queries
@@ -12,32 +13,165 @@ Design constraints (from spec §2):
   - Never invent facts not present in the evidence passed in.
   - Return JSON for structured calls; retry once on parse failure.
   - A bad model response must never block the pipeline — callers get None / fallback.
+
+LLM priority:
+  1. Gemma 4 2B loaded locally via HuggingFace transformers (GEMMA_LOCAL_MODEL_ID).
+  2. If Gemma fails (OOM, model not found, etc.), the call falls back to the
+     Gemini API (GEMINI_API_KEY + GEMMA_MODEL).  Set GEMINI_API_KEY="" to
+     disable the fallback entirely.
 """
 import json
 import logging
 import re
+import threading
 from typing import Optional
 
-import google.generativeai as genai
 from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# Configure API key once at module import
-genai.configure(api_key=settings.GEMINI_API_KEY)
-_model = genai.GenerativeModel(model_name=settings.GEMMA_MODEL)
+# ── Gemma 4 2B local model (primary) ─────────────────────────────────────────
 
+_gemma_processor = None
+_gemma_model = None
+_gemma_load_lock = threading.Lock()
+_gemma_load_failed = False   # set to True if the model fails to load so we skip retries
+
+GEMMA_LOCAL_MODEL_ID = settings.GEMMA_LOCAL_MODEL_ID  # e.g. "google/gemma-4-2b-it"
+
+
+def _load_gemma():
+    """
+    Lazy-load the Gemma model + processor on first use.
+    Thread-safe via a lock so concurrent callers don't double-load.
+    Returns (processor, model) or (None, None) on failure.
+    """
+    global _gemma_processor, _gemma_model, _gemma_load_failed
+    if _gemma_load_failed:
+        return None, None
+    if _gemma_processor is not None:
+        return _gemma_processor, _gemma_model
+
+    with _gemma_load_lock:
+        # Double-checked locking
+        if _gemma_processor is not None:
+            return _gemma_processor, _gemma_model
+        if _gemma_load_failed:
+            return None, None
+        try:
+            from transformers import AutoProcessor, AutoModelForMultimodalLM
+            logger.info("Loading Gemma model '%s' …", GEMMA_LOCAL_MODEL_ID)
+            processor = AutoProcessor.from_pretrained(GEMMA_LOCAL_MODEL_ID)
+            model = AutoModelForMultimodalLM.from_pretrained(
+                GEMMA_LOCAL_MODEL_ID,
+                dtype="auto",
+                device_map="auto",
+            )
+            _gemma_processor = processor
+            _gemma_model = model
+            logger.info("Gemma model loaded successfully.")
+            return _gemma_processor, _gemma_model
+        except Exception as exc:
+            logger.error(
+                "Failed to load Gemma local model '%s': %s. "
+                "Will fall back to Gemini API for all LLM calls.",
+                GEMMA_LOCAL_MODEL_ID, exc,
+            )
+            _gemma_load_failed = True
+            return None, None
+
+
+def _call_gemma(prompt: str) -> Optional[str]:
+    """
+    Run inference with the local Gemma model.
+    Returns the generated text string, or None on any error.
+    """
+    processor, model = _load_gemma()
+    if processor is None or model is None:
+        return None
+
+    try:
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt},
+        ]
+        inputs = processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+            add_generation_prompt=True,
+            enable_thinking=False,
+        ).to(model.device)
+        input_len = inputs["input_ids"].shape[-1]
+        outputs = model.generate(**inputs, max_new_tokens=1024)
+        raw = processor.decode(outputs[0][input_len:], skip_special_tokens=False)
+        # parse_response strips thinking/special tokens where applicable
+        parsed = processor.parse_response(raw)
+        return parsed.strip() if parsed else raw.strip()
+    except Exception as exc:
+        logger.error("Gemma inference error: %s", exc)
+        return None
+
+
+# ── Gemini API fallback ───────────────────────────────────────────────────────
+
+_gemini_model = None
+
+
+def _get_gemini_model():
+    """Lazy-init the Gemini API client (only when actually needed)."""
+    global _gemini_model
+    if _gemini_model is not None:
+        return _gemini_model
+    if not settings.GEMINI_API_KEY:
+        return None
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        _gemini_model = genai.GenerativeModel(model_name=settings.GEMMA_MODEL)
+        logger.info("Gemini API fallback client initialised (model: %s).", settings.GEMMA_MODEL)
+        return _gemini_model
+    except Exception as exc:
+        logger.error("Failed to initialise Gemini API client: %s", exc)
+        return None
+
+
+def _call_gemini(prompt: str) -> Optional[str]:
+    """Call the Gemini API. Returns text or None."""
+    model = _get_gemini_model()
+    if model is None:
+        return None
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as exc:
+        logger.error("Gemini API fallback error: %s", exc)
+        return None
+
+
+# ── Unified call helpers ──────────────────────────────────────────────────────
 
 def _call(prompt: str) -> str:
-    """Raw model call; raises on network/auth errors."""
-    response = _model.generate_content(prompt)
-    return response.text.strip()
+    """
+    Run the prompt through Gemma (primary) → Gemini (fallback).
+    Raises RuntimeError only when BOTH providers fail, so callers can catch.
+    """
+    result = _call_gemma(prompt)
+    if result is not None:
+        return result
+
+    logger.warning("Gemma unavailable — falling back to Gemini API.")
+    result = _call_gemini(prompt)
+    if result is not None:
+        return result
+
+    raise RuntimeError("Both Gemma local model and Gemini API fallback failed.")
 
 
 def _parse_json(text: str) -> Optional[dict]:
     """Extract JSON from model output, tolerating markdown fences."""
-    # Strip ```json ... ``` fences if present
     cleaned = re.sub(r"```(?:json)?\s*", "", text).strip().rstrip("```").strip()
     try:
         return json.loads(cleaned)
