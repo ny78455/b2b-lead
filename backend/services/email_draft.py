@@ -59,6 +59,20 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
     if not draft_html:
         return {"status": "failed", "message": "LLM failed to generate email draft."}
 
+    # Ensure draft is a proper HTML document with a white background so it's visible in dark mode
+    if not draft_html.strip().lower().startswith("<html"):
+        draft_html = f"""<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {{ font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333; background-color: #ffffff; padding: 20px; margin: 0; }}
+</style>
+</head>
+<body>
+{draft_html}
+</body>
+</html>"""
+
     # Generate a subject line (derive from company name + angle)
     subject = f"Quick question about {company.name}'s knowledge workflow"
 
