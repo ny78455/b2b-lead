@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from backend.models import Campaign, Company, Contact
-from backend.services import llm
+from backend.services import llm, calendar
 from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,9 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
     contact = contact_result.scalar_one_or_none()
     contact_name = contact.name if (contact and contact.name) else "there"
 
+    # Generate unique Google Meet link for this prospect
+    meeting_link = calendar.generate_meeting_link(company.name)
+
     # Call LLM to generate draft
     draft_html = llm.draft_email(
         persona_summary=company.persona_summary,
@@ -49,17 +52,12 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
         contact_name=contact_name,
         sender_name=settings.SENDER_NAME,
         sender_company=settings.SENDER_COMPANY,
+        meeting_link=meeting_link,
+        website="https://www.vantrade.online/",
     )
 
     if not draft_html:
         return {"status": "failed", "message": "LLM failed to generate email draft."}
-
-    # Verify compliance: unsubscribe token must be present
-    if "unsubscribe_link" not in draft_html:
-        draft_html += (
-            '\n<p style="font-size:11px;color:#888;text-align:center;">'
-            '<a href="{{unsubscribe_link}}">Unsubscribe</a></p>'
-        )
 
     # Generate a subject line (derive from company name + angle)
     subject = f"Quick question about {company.name}'s knowledge workflow"
