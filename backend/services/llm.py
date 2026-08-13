@@ -68,7 +68,7 @@ def _load_gemma():
             # device_map="auto" works if accelerate is installed.
             model = AutoModelForCausalLM.from_pretrained(
                 GEMMA_LOCAL_MODEL_ID,
-                torch_dtype=torch.float16,
+                torch_dtype="auto",
                 device_map="auto",
             )
             _gemma_processor = tokenizer
