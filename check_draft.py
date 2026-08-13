@@ -1,10 +1,10 @@
 import asyncio
-from backend.database import SessionLocal
+from backend.database import AsyncSessionLocal
 from backend.models import Campaign
 from sqlalchemy import select
 
 async def main():
-    async with SessionLocal() as db:
+    async with AsyncSessionLocal() as db:
         res = await db.execute(select(Campaign).order_by(Campaign.created_at.desc()).limit(1))
         campaign = res.scalar_one_or_none()
         if campaign:
