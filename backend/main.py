@@ -11,9 +11,28 @@ import traceback
 from backend.routers import leads, enrich, campaigns, replies, sync, scrape, bulk
 from backend.services.reply_poller import poll_forever
 
+import urllib.request
+import email.utils
+import datetime
+import google.auth._helpers
+
+def patch_google_auth_time():
+    try:
+        r = urllib.request.urlopen('http://www.google.com', timeout=3)
+        real_time = email.utils.parsedate_to_datetime(r.headers['Date']).replace(tzinfo=None)
+        offset = real_time - datetime.datetime.utcnow()
+        orig = google.auth._helpers.utcnow
+        google.auth._helpers.utcnow = lambda: orig() + offset
+        print(f"Patched Google auth time. Offset: {offset}")
+    except Exception as e:
+        print(f"Failed to patch Google auth time: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Apply auth time patch to fix invalid_grant due to system clock drift
+    patch_google_auth_time()
+    
     # Startup: Start IMAP reply poller in the background
     poller_task = asyncio.create_task(poll_forever())
     yield
