@@ -2,7 +2,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import logging
 
 logging.basicConfig(level=logging.INFO)
-MODEL_ID = "google/gemma-2-2b-it"
+MODEL_ID = "google/gemma-4-E2B-it"
 
 def test():
     logging.info("Loading tokenizer...")
@@ -15,7 +15,7 @@ def test():
     )
     
     messages = [
-        {"role": "user", "content": "Write a short joke."}
+        {"role": "user", "content": "Write a short joke on climate."}
     ]
     inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_dict=True, return_tensors="pt")
     inputs = inputs.to(model.device)
