@@ -28,36 +28,8 @@ async def build_persona(company_id: str, db: AsyncSession) -> dict:
     if company.enrichment_status != "done":
         return {"status": "failed", "message": "Company not yet enriched."}
 
-    # Build evidence text from confirmed fields only — null fields are omitted
-    evidence_parts = []
-    if company.name:
-        evidence_parts.append(f"Company name: {company.name}")
-    if company.website:
-        evidence_parts.append(f"Website: {company.website}")
-    if company.industry:
-        evidence_parts.append(f"Industry: {company.industry}")
-    if company.employees_estimate:
-        evidence_parts.append(f"Estimated employees: {company.employees_estimate}")
-    if company.summary:
-        evidence_parts.append(f"What they do: {company.summary}")
-    if company.tech_stack_hints:
-        evidence_parts.append(f"Technology stack hints: {company.tech_stack_hints}")
-    if company.rag_rationale:
-        evidence_parts.append(f"RAG opportunity note: {company.rag_rationale}")
+    # Persona summary is now generated during the unified Module 2 extraction step.
+    if not company.persona_summary:
+        return {"status": "failed", "message": "Persona summary was not populated during enrichment."}
 
-    if not evidence_parts:
-        return {"status": "failed", "message": "No enrichment data available for persona."}
-
-    enrichment_text = "\n".join(evidence_parts)
-    rag_score = company.rag_score or 0
-    purchase_score = company.purchase_score or 0
-
-    persona = llm.summarize_persona(enrichment_text, rag_score, purchase_score)
-
-    if not persona:
-        return {"status": "failed", "message": "LLM failed to generate persona summary."}
-
-    company.persona_summary = persona
-    await db.commit()
-
-    return {"status": "done", "persona_summary": persona}
+    return {"status": "done", "persona_summary": company.persona_summary}
