@@ -46,15 +46,15 @@ async def _connect_imap() -> aioimaplib.IMAP4_SSL:
 
 async def _fetch_unseen_uids(client: aioimaplib.IMAP4_SSL) -> list[str]:
     """Return UID list of UNSEEN messages."""
-    _, data = await client.uid_search("UNSEEN")
-    raw = data[0].decode() if data else ""
+    _, data = await client.uid("SEARCH", "UNSEEN")
+    raw = data[0].decode() if data and data[0] else ""
     return [uid for uid in raw.split() if uid]
 
 
 async def _fetch_message(client: aioimaplib.IMAP4_SSL, uid: str) -> Optional[email.message.Message]:
     """Fetch RFC822 message by UID and parse it."""
     try:
-        _, data = await client.uid_fetch(uid, "(RFC822)")
+        _, data = await client.uid("FETCH", uid, "(RFC822)")
         for part in data:
             if isinstance(part, tuple):
                 return email.message_from_bytes(part[1], policy=email.policy.default)
@@ -153,6 +153,10 @@ async def poll_forever() -> None:
     Background task: poll inbox every IMAP_POLL_INTERVAL_SECONDS.
     Started once at FastAPI lifespan startup. Never blocks the API.
     """
+    if not settings.IMAP_USER or not settings.IMAP_PASSWORD:
+        logger.info("IMAP not configured (IMAP_USER/IMAP_PASSWORD empty). Reply poller disabled.")
+        return
+
     logger.info(
         "Reply poller started. Polling every %ds.", settings.IMAP_POLL_INTERVAL_SECONDS
     )
