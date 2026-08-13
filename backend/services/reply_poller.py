@@ -45,21 +45,21 @@ async def _connect_imap() -> aioimaplib.IMAP4_SSL:
 
 
 async def _fetch_unseen_uids(client: aioimaplib.IMAP4_SSL) -> list[str]:
-    """Return UID list of UNSEEN messages."""
-    _, data = await client.uid("SEARCH", "UNSEEN")
+    """Return message sequence numbers of UNSEEN messages."""
+    _, data = await client.search("UNSEEN")
     raw = data[0].decode() if data and data[0] else ""
-    return [uid for uid in raw.split() if uid]
+    return [num for num in raw.split() if num]
 
 
-async def _fetch_message(client: aioimaplib.IMAP4_SSL, uid: str) -> Optional[email.message.Message]:
-    """Fetch RFC822 message by UID and parse it."""
+async def _fetch_message(client: aioimaplib.IMAP4_SSL, num: str) -> Optional[email.message.Message]:
+    """Fetch RFC822 message by sequence number and parse it."""
     try:
-        _, data = await client.uid("FETCH", uid, "(RFC822)")
+        _, data = await client.fetch(num, "(RFC822)")
         for part in data:
             if isinstance(part, tuple):
                 return email.message_from_bytes(part[1], policy=email.policy.default)
     except Exception as exc:
-        logger.error("Failed to fetch UID %s: %s", uid, exc)
+        logger.error("Failed to fetch message %s: %s", num, exc)
     return None
 
 
