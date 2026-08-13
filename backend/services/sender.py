@@ -175,12 +175,7 @@ async def send_campaign(campaign_id: str, db: AsyncSession) -> dict:
     unsubscribe_url = _make_unsubscribe_url(str(campaign.id))
     html_body = (campaign.draft_html or "").replace("{{unsubscribe_link}}", unsubscribe_url)
 
-    # Final compliance check: ensure unsubscribe link is present
-    if unsubscribe_url not in html_body:
-        html_body += (
-            f'\n<p style="font-size:11px;color:#888;text-align:center;">'
-            f'<a href="{unsubscribe_url}">Unsubscribe</a></p>'
-        )
+    # Removed unsubscribe link requirement per user request
 
     # ── Send via Gmail SMTP (in thread to avoid blocking the async event loop) ─
     try:

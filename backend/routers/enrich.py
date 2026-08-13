@@ -111,14 +111,14 @@ async def enrich_and_draft(
         
     total_time = time.time() - total_start
     
-    logger.info("==================================================")
-    logger.info("ENRICHMENT TIMING REPORT for %s", company_id)
-    logger.info("  1. Scrape + Extraction : %.2f seconds", timings.get('enrich', 0))
-    logger.info("  2. Rule-based Scoring  : %.2f seconds", timings.get('score', 0))
-    logger.info("  3. Persona Generation  : %.2f seconds", timings.get('persona', 0))
-    logger.info("  4. Email Drafting      : %.2f seconds", timings.get('draft_email', 0))
-    logger.info("--------------------------------------------------")
-    logger.info("  TOTAL PIPELINE TIME    : %.2f seconds", total_time)
-    logger.info("==================================================")
+    print("\n==================================================")
+    print(f"ENRICHMENT TIMING REPORT for {company_id}")
+    print(f"  1. Scrape + Extraction : {timings.get('enrich', 0):.2f} seconds")
+    print(f"  2. Rule-based Scoring  : {timings.get('score', 0):.2f} seconds")
+    print(f"  3. Persona Generation  : {timings.get('persona', 0):.2f} seconds")
+    print(f"  4. Email Drafting      : {timings.get('draft_email', 0):.2f} seconds")
+    print("--------------------------------------------------")
+    print(f"  TOTAL PIPELINE TIME    : {total_time:.2f} seconds")
+    print("==================================================\n")
         
     return draft_result

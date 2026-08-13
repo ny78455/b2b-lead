@@ -61,6 +61,7 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
 
     # Ensure draft is a proper HTML document with a white background so it's visible in dark mode
     if not draft_html.strip().lower().startswith("<html"):
+        draft_html = draft_html.replace('\n', '<br>')
         draft_html = f"""<!DOCTYPE html>
 <html>
 <head>
