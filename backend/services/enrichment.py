@@ -149,7 +149,12 @@ async def enrich_company(company_id: str, db: AsyncSession) -> dict:
     company.industry = fields.get("industry")
     company.employees_estimate = fields.get("employees_estimate")
     company.summary = fields.get("summary")
-    company.tech_stack_hints = fields.get("tech_stack_hints")
+    
+    tech = fields.get("tech_stack_hints")
+    if isinstance(tech, list):
+        company.tech_stack_hints = ", ".join(str(x) for x in tech)
+    else:
+        company.tech_stack_hints = tech
     
     # Save the consolidated RAG score and Persona generated in this single step
     company.rag_score = int(fields.get("rag_score") or 0)
