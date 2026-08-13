@@ -108,39 +108,6 @@ async def _gather_site_text(website: str) -> str:
     return "\n\n".join(texts)
 
 
-# ── LLM extraction ────────────────────────────────────────────────────────────
-
-def _extract_fields_from_text(combined_text: str) -> dict:
-    """
-    Ask Gemma to extract structured fields from the scraped text.
-    Returns a dict with keys: industry, employees_estimate, summary, tech_stack_hints.
-    All missing keys are None — never fabricated.
-    """
-    prompt = f"""You are a B2B research analyst. Extract the following fields from
-the website text below. Only use information explicitly stated in the text.
-If a field cannot be found, output null for it.
-
-Fields to extract:
-- industry: the primary industry or sector this company operates in (string or null)
-- employees_estimate: rough headcount band e.g. "1-10", "11-50", "51-200", "201-500", "500+" (string or null)
-- summary: 2-3 sentences describing what the company does (string or null)
-- tech_stack_hints: comma-separated list of technologies/tools mentioned (string or null)
-
-Website text:
-{combined_text[:6000]}
-
-Return ONLY valid JSON with exactly these four keys:
-{{"industry": ..., "employees_estimate": ..., "summary": ..., "tech_stack_hints": ...}}"""
-
-    result = llm._call_json(prompt)
-    if result:
-        return {
-            "industry": result.get("industry"),
-            "employees_estimate": result.get("employees_estimate"),
-            "summary": result.get("summary"),
-            "tech_stack_hints": result.get("tech_stack_hints"),
-        }
-    return {}
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
@@ -175,14 +142,20 @@ async def enrich_company(company_id: str, db: AsyncSession) -> dict:
         await db.commit()
         return {"status": "failed", "message": "Could not retrieve any page content."}
 
-    # Step 3 — LLM extraction
-    fields = _extract_fields_from_text(combined_text)
+    # Step 3 — LLM Unified extraction, scoring, and persona
+    fields = llm.extract_and_score_and_persona(combined_text) or {}
 
     # Step 4 — persist (null fields stay null — never fabricated)
     company.industry = fields.get("industry")
     company.employees_estimate = fields.get("employees_estimate")
     company.summary = fields.get("summary")
     company.tech_stack_hints = fields.get("tech_stack_hints")
+    
+    # Save the consolidated RAG score and Persona generated in this single step
+    company.rag_score = int(fields.get("rag_score") or 0)
+    company.rag_rationale = fields.get("rag_rationale")
+    company.persona_summary = fields.get("persona_summary")
+
     company.enrichment_status = "done"
     company.status = "enriched"
 

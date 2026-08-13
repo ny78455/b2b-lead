@@ -102,21 +102,10 @@ async def score_company(company_id: str, db: AsyncSession) -> dict:
     if company.enrichment_status != "done":
         return {"status": "failed", "message": "Company not yet enriched."}
 
-    # Build enrichment text for the LLM
-    enrichment_text = "\n".join(filter(None, [
-        f"Industry: {company.industry}",
-        f"Employees: {company.employees_estimate}",
-        f"Summary: {company.summary}",
-        f"Tech stack hints: {company.tech_stack_hints}",
-    ]))
-
     # ── Module 3: RAG score (LLM) ─────────────────────────────────────────────
-    rag_result = llm.score_rag(enrichment_text)
-    if rag_result:
-        company.rag_score = int(rag_result.get("score", 0))
-        company.rag_rationale = rag_result.get("rationale")
-    else:
-        logger.warning("RAG scoring failed for company %s — leaving null.", company_id)
+    # This is now populated during the unified Module 2 extraction step.
+    if company.rag_score is None:
+        logger.warning("RAG score was not populated during enrichment for company %s", company_id)
 
     # ── Module 4: Purchase intent score (transparent rule-based) ──────────────
     company.purchase_score = _compute_purchase_score(company)
