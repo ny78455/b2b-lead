@@ -60,15 +60,18 @@ def _load_gemma():
         if _gemma_load_failed:
             return None, None
         try:
-            from transformers import AutoProcessor, AutoModelForMultimodalLM
-            logger.info("Loading Gemma model '%s' …", GEMMA_LOCAL_MODEL_ID)
-            processor = AutoProcessor.from_pretrained(GEMMA_LOCAL_MODEL_ID)
-            model = AutoModelForMultimodalLM.from_pretrained(
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            import torch
+            logger.info("Loading Gemma model '%s' (this may take a while to download) …", GEMMA_LOCAL_MODEL_ID)
+            tokenizer = AutoTokenizer.from_pretrained(GEMMA_LOCAL_MODEL_ID)
+            
+            # device_map="auto" works if accelerate is installed.
+            model = AutoModelForCausalLM.from_pretrained(
                 GEMMA_LOCAL_MODEL_ID,
-                dtype="auto",
+                torch_dtype=torch.float16,
                 device_map="auto",
             )
-            _gemma_processor = processor
+            _gemma_processor = tokenizer
             _gemma_model = model
             logger.info("Gemma model loaded successfully.")
             return _gemma_processor, _gemma_model
@@ -102,7 +105,6 @@ def _call_gemma(prompt: str) -> Optional[str]:
             return_dict=True,
             return_tensors="pt",
             add_generation_prompt=True,
-            enable_thinking=False,
         ).to(model.device)
         input_len = inputs["input_ids"].shape[-1]
         
@@ -110,10 +112,8 @@ def _call_gemma(prompt: str) -> Optional[str]:
         outputs = model.generate(**inputs, max_new_tokens=1024)
         logger.info("Gemma inference complete.")
         
-        raw = processor.decode(outputs[0][input_len:], skip_special_tokens=False)
-        # parse_response strips thinking/special tokens where applicable
-        parsed = processor.parse_response(raw)
-        return parsed.strip() if parsed else raw.strip()
+        raw = processor.decode(outputs[0][input_len:], skip_special_tokens=True)
+        return raw.strip()
     except Exception as exc:
         logger.error("Gemma inference error: %s", exc)
         return None
