@@ -231,58 +231,30 @@ Return ONLY a JSON array of strings. No markdown, no commentary, no keys."""
     return fallback
 
 
-# ── 2. RAG opportunity score (Module 3) ───────────────────────────────────────
+# ── Unified Extraction, Scoring, Persona (Module 2/3/5) ──────────────────────
 
-def score_rag(enrichment_text: str) -> Optional[dict]:
+def extract_and_score_and_persona(combined_text: str) -> Optional[dict]:
     """
-    Returns {"score": int (0-100), "rationale": str} or None on failure.
-    Never invents facts — scores only on evidence provided.
+    Unified LLM call to extract fields, score RAG opportunity, and generate a persona.
+    Returns a dict with keys: industry, employees_estimate, summary, tech_stack_hints,
+    rag_score, rag_rationale, persona_summary.
     """
-    prompt = f"""You are a B2B solutions analyst. Score how likely this company would
-benefit from a Retrieval-Augmented Generation (RAG) system, based ONLY on the
-evidence provided. Do not invent facts.
+    prompt = f"""You are a B2B research analyst. Extract information and score the
+company based ONLY on the website text below. Do not invent facts.
 
-Checklist to consider:
-- Do they show signs of a large knowledge base, documentation, or support volume?
-- Do they mention AI/LLM/chatbot initiatives already?
-- Does their industry typically carry compliance-heavy documents (legal, medical, financial)?
+Website text:
+{combined_text[:3000]}
 
-Evidence:
-{enrichment_text}
-
-Return JSON only:
-{{"score": <integer 0-100>, "rationale": "<one sentence, evidence-based>"}}"""
-
+Return ONLY a valid JSON object with EXACTLY these keys:
+- "industry": primary industry or sector (string or null)
+- "employees_estimate": rough headcount band e.g. "1-10", "11-50", "51-200", "201-500", "500+" (string or null)
+- "summary": 2-3 sentences describing what the company does (string or null)
+- "tech_stack_hints": comma-separated list of technologies/tools mentioned (string or null)
+- "rag_score": integer (0-100) scoring how likely they would benefit from a RAG system (consider knowledge base size, AI initiatives, compliance)
+- "rag_rationale": 1 sentence explaining the rag_score (string)
+- "persona_summary": 3-5 sentences summarizing the company for a sales rep, using only confirmed facts (string)
+"""
     return _call_json(prompt)
-
-
-# ── 3. Persona summary (Module 5) ─────────────────────────────────────────────
-
-def summarize_persona(
-    enrichment_text: str,
-    rag_score: int,
-    purchase_score: int,
-) -> Optional[str]:
-    """
-    Returns a 3-5 sentence plain-text persona summary.
-    If a fact is not confirmed, it is omitted — never speculated.
-    """
-    prompt = f"""Summarize this company in 3-5 sentences for a sales rep.
-Use ONLY the evidence given. If a fact is not confirmed, omit it —
-never speculate or fabricate specifics (funding amounts, headcount,
-customer names, etc.).
-
-Evidence:
-{enrichment_text}
-Scores: rag_score={rag_score}, purchase_score={purchase_score}
-
-Output plain text only (no JSON, no markdown headers)."""
-
-    try:
-        return _call(prompt)
-    except Exception as exc:
-        logger.error("Persona summary failed: %s", exc)
-        return None
 
 
 # ── 4. Email draft (Module 6) ─────────────────────────────────────────────────

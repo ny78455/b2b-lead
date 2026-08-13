@@ -16,6 +16,8 @@ Constraints (spec §2):
 """
 import logging
 import re
+import asyncio
+from urllib.parse import urljoin, urlparse
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -34,7 +36,7 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 TIMEOUT = 15.0  # seconds
-MAX_TEXT_CHARS = 8000  # cap text sent to LLM per page
+MAX_TEXT_CHARS = 3000  # cap text sent to LLM per page
 
 
 # ── Robots.txt check ──────────────────────────────────────────────────────────
@@ -92,11 +94,16 @@ async def _gather_site_text(website: str) -> str:
     ]
 
     async with httpx.AsyncClient(headers=HEADERS, verify=False) as client:
+        # Fetch all pages concurrently
+        tasks = [_fetch_text(client, url) for url in pages]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
         texts = []
-        for url in pages:
-            text = await _fetch_text(client, url)
-            if text:
-                texts.append(f"[Page: {url}]\n{text}")
+        for url, result in zip(pages, results):
+            if isinstance(result, Exception):
+                logger.debug("Gather failed for %s: %s", url, result)
+            elif result:  # if text was returned
+                texts.append(f"[Page: {url}]\n{result}")
 
     return "\n\n".join(texts)
 
