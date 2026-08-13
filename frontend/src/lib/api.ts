@@ -11,6 +11,14 @@ export async function fetchLeads(page = 1, status = '') {
   return res.json();
 }
 
+export async function deleteLead(id: string) {
+  const res = await fetch(`${API_BASE_URL}/leads/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to delete lead');
+  return res.json();
+}
+
 export async function fetchPendingCampaigns() {
   const res = await fetch(`${API_BASE_URL}/campaigns/pending`);
   if (!res.ok) throw new Error('Failed to fetch campaigns');
