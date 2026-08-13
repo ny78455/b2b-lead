@@ -281,7 +281,8 @@ Rules:
 - Name exactly one plausible pain point and how a RAG solution helps.
 - End with a call to action to schedule a 10-minute chat using this meeting link: {meeting_link}
 - Output CLEAN and VALID HTML only. DO NOT wrap your output in markdown ```html code blocks. Just output the raw HTML tags.
-- Use simple, clean HTML styling (e.g. <p style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">).
+- DO NOT include a "Subject:" line in the output.
+- Structure your email using proper HTML <p> tags for paragraphs. 
 - Format the CTA as a highly visible, clickable HTML button or link.
 - In the signature footer, include the sender name, company, and this website link: {website}
 - No superlatives, no fake urgency, no "I noticed you're the perfect fit" filler.
