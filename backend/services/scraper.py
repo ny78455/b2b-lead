@@ -13,7 +13,7 @@ import gspread
 from playwright.async_api import async_playwright
 
 from backend.config import get_settings
-from backend.database import SessionLocal
+from backend.database import AsyncSessionLocal
 from backend.models import Company, Contact
 from sqlalchemy import select
 
@@ -226,7 +226,7 @@ async def run_scraper(search_queries: list[str]):
         logger.info("Scraping completed.")
 
 async def _sync_single_lead_to_db(query, extracted):
-    async with SessionLocal() as db:
+    async with AsyncSessionLocal() as db:
         email_val = extracted["email"].strip().lower()
         company_name = extracted["name"].strip()
         
