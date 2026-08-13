@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { fetchLeads, startScraping, startBulkSending } from '../lib/api';
+import { fetchLeads, startScraping, startBulkSending, stopScraping } from '../lib/api';
 import CompanyTable, { Company } from '../components/CompanyTable';
 
 export default function CRMDashboard() {
@@ -37,6 +37,18 @@ export default function CRMDashboard() {
       setScrapeQuery('');
     } catch (err: any) {
       alert(`Error starting campaign: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleStopCampaign = async () => {
+    setActionLoading(true);
+    try {
+      await stopScraping();
+      alert("Stop signal sent! Scraping will halt shortly.");
+    } catch (err: any) {
+      alert(`Error stopping campaign: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -111,6 +123,13 @@ export default function CRMDashboard() {
           >
             Start Campaign
           </button>
+          <button 
+            onClick={handleStopCampaign}
+            disabled={actionLoading}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-colors whitespace-nowrap"
+          >
+            Stop Campaign
+          </button>
         </div>
         <div className="hidden sm:block w-px h-8 bg-gray-700"></div>
         <button 
@@ -134,7 +153,7 @@ export default function CRMDashboard() {
         </div>
       ) : (
         <>
-          <CompanyTable companies={companies} />
+          <CompanyTable companies={companies} onLeadDeleted={loadData} />
           
           <div className="flex justify-between items-center mt-6">
             <button
