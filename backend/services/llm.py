@@ -105,7 +105,11 @@ def _call_gemma(prompt: str) -> Optional[str]:
             enable_thinking=False,
         ).to(model.device)
         input_len = inputs["input_ids"].shape[-1]
+        
+        logger.info("Starting Gemma inference (prompt length: %s tokens)...", input_len)
         outputs = model.generate(**inputs, max_new_tokens=1024)
+        logger.info("Gemma inference complete.")
+        
         raw = processor.decode(outputs[0][input_len:], skip_special_tokens=False)
         # parse_response strips thinking/special tokens where applicable
         parsed = processor.parse_response(raw)
@@ -167,20 +171,7 @@ def _call(prompt: str) -> str:
     if result is not None:
         return result
 
-    logger.warning("Both Gemma local model and Gemini API fallback failed. Using mock response for testing.")
-    if "JSON" in prompt:
-        if "score" in prompt:
-            return '{"score": 85, "rationale": "Shows strong signs of knowledge base needs."}'
-        if "classification" in prompt:
-            return '{"classification": "interested", "sentiment": "positive"}'
-        if "industry" in prompt:
-            return '{"industry": "Plumbing Services", "employees_estimate": "11-50", "summary": "A local plumbing service offering 24-hour emergency repairs.", "tech_stack_hints": "WordPress, Google Analytics"}'
-        return '["Plumbers in New York", "Plumbers in Brooklyn"]'
-    
-    if "HTML" in prompt:
-        return '<html><body><p>Hi there,</p><p>We noticed you are a plumbing service offering 24-hour repairs. Have you considered using an AI knowledge base for your dispatchers?</p><p><a href="{{unsubscribe_link}}">Unsubscribe</a></p></body></html>'
-        
-    return "This is a mocked persona summary for testing purposes. The company provides local services and could benefit from AI knowledge management."
+    raise RuntimeError("Both Gemma local model and Gemini API fallback failed.")
 
 
 def _parse_json(text: str) -> Optional[dict]:
