@@ -89,3 +89,14 @@ export async function startBulkSending() {
   }
   return res.json();
 }
+
+export async function stopScraping() {
+  const res = await fetch(`${API_BASE_URL}/scrape/stop`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || 'Failed to stop scraping');
+  }
+  return res.json();
+}
