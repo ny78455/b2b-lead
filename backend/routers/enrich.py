@@ -68,3 +68,21 @@ async def enrich_batch(
         if len(request.company_ids) > 1:
             await asyncio.sleep(settings.ENRICH_DELAY_SECONDS)
     return results
+
+
+@router.post("/{company_id}/draft")
+async def enrich_and_draft(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Run full enrichment pipeline then immediately generate an email draft."""
+    from backend.services.email_draft import generate_draft
+    # Step 1: Enrich
+    enrich_result = await _run_full_pipeline(str(company_id), db)
+    if enrich_result.status == "failed":
+        raise HTTPException(status_code=400, detail=enrich_result.message)
+    # Step 2: Generate email draft
+    draft_result = await generate_draft(str(company_id), db)
+    if draft_result["status"] == "failed":
+        raise HTTPException(status_code=400, detail=draft_result.get("message", "Draft generation failed"))
+    return draft_result
