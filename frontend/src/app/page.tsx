@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { fetchLeads, startScraping, startBulkSending, stopScraping } from '../lib/api';
+import { fetchLeads, startScraping, startBulkSending, stopScraping, enrichAllLeads, sendAllLeads, deleteAllLeads } from '../lib/api';
 import CompanyTable, { Company } from '../components/CompanyTable';
 
 export default function CRMDashboard() {
@@ -64,6 +64,48 @@ export default function CRMDashboard() {
       setTimeout(loadData, 2000);
     } catch (err: any) {
       alert(`Error starting bulk send: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleEnrichAll = async () => {
+    if (!confirm('Enrich ALL new leads in the background? This may take a few minutes.')) return;
+    setActionLoading(true);
+    try {
+      await enrichAllLeads();
+      alert('Enrichment started for all new leads in the background.');
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSendAll = async () => {
+    if (!confirm('Send emails to ALL enriched leads? This bypasses per-lead review.')) return;
+    setActionLoading(true);
+    try {
+      await sendAllLeads();
+      alert('Sending started for all enriched leads in the background.');
+      setTimeout(loadData, 3000);
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (!confirm('⚠️ Delete ALL leads? This cannot be undone.')) return;
+    if (!confirm('Are you absolutely sure? ALL data will be lost.')) return;
+    setActionLoading(true);
+    try {
+      const result = await deleteAllLeads();
+      alert(`Deleted ${result.count} leads.`);
+      loadData();
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -141,6 +183,32 @@ export default function CRMDashboard() {
         </button>
       </div>
 
+      {/* Batch actions */}
+      <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+        <span className="text-gray-400 text-xs font-semibold uppercase tracking-wider mr-1">Batch:</span>
+        <button
+          onClick={handleEnrichAll}
+          disabled={actionLoading}
+          className="px-3 py-1.5 text-xs font-semibold bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/50 text-indigo-300 rounded-md transition-all disabled:opacity-50"
+        >
+          ✦ Enrich All
+        </button>
+        <button
+          onClick={handleSendAll}
+          disabled={actionLoading}
+          className="px-3 py-1.5 text-xs font-semibold bg-green-600/20 hover:bg-green-600/40 border border-green-500/50 text-green-300 rounded-md transition-all disabled:opacity-50"
+        >
+          ➤ Send All
+        </button>
+        <button
+          onClick={handleDeleteAll}
+          disabled={actionLoading}
+          className="px-3 py-1.5 text-xs font-semibold bg-red-600/20 hover:bg-red-600/40 border border-red-500/50 text-red-400 rounded-md transition-all disabled:opacity-50"
+        >
+          ✕ Delete All
+        </button>
+      </div>
+
       {error && (
         <div className="p-4 rounded-md bg-red-900/40 border border-red-800 text-red-400">
           Error loading leads: {error}
@@ -153,7 +221,7 @@ export default function CRMDashboard() {
         </div>
       ) : (
         <>
-          <CompanyTable companies={companies} onLeadDeleted={loadData} />
+          <CompanyTable companies={companies} onLeadDeleted={loadData} onLeadUpdated={loadData} />
           
           <div className="flex justify-between items-center mt-6">
             <button
