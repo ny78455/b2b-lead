@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from backend.database import get_db, SessionLocal
+from backend.database import get_db, AsyncSessionLocal
 from backend.models import Company, Campaign
 from backend.routers.enrich import _run_full_pipeline
 from backend.services.email_draft import generate_draft
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 async def run_bulk_send_task():
     """Background task to automate enriching, drafting, and sending emails."""
-    async with SessionLocal() as db:
+    async with AsyncSessionLocal() as db:
         # Find companies that have not been drafted or sent yet
         result = await db.execute(
             select(Company)
