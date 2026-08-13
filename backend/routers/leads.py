@@ -189,6 +189,19 @@ async def delete_lead(
     return {"status": "deleted"}
 
 
+@router.delete("")
+async def delete_all_leads(
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete ALL companies and their associated records."""
+    result = await db.execute(select(Company))
+    companies = result.scalars().all()
+    for company in companies:
+        await db.delete(company)
+    await db.commit()
+    return {"status": "deleted", "count": len(companies)}
+
+
 # ── Unsubscribe endpoint (compliance) ─────────────────────────────────────────
 
 @router.get("/unsubscribe")
