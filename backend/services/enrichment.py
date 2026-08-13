@@ -91,7 +91,7 @@ async def _gather_site_text(website: str) -> str:
         urljoin(origin, "/careers"),
     ]
 
-    async with httpx.AsyncClient(headers=HEADERS) as client:
+    async with httpx.AsyncClient(headers=HEADERS, verify=False) as client:
         texts = []
         for url in pages:
             text = await _fetch_text(client, url)
