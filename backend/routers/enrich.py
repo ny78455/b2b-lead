@@ -8,6 +8,7 @@ Endpoints:
 import asyncio
 import logging
 import uuid
+import time
 
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,24 +23,35 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-async def _run_full_pipeline(company_id: str, db: AsyncSession) -> EnrichResult:
-    """Run Modules 2 → 3 → 4 → 5 in sequence for one company."""
+async def _run_full_pipeline(company_id: str, db: AsyncSession) -> dict:
+    """Run Modules 2 → 3 → 4 → 5 in sequence for one company, returning timing data as well."""
+    timings = {}
+    
     # Module 2: Enrich
+    t0 = time.time()
     result = await enrichment.enrich_company(company_id, db)
+    t1 = time.time()
+    timings['enrich'] = t1 - t0
     if result["status"] == "failed":
-        return EnrichResult(company_id=company_id, status="failed", message=result["message"])
+        return {"status": "failed", "message": result["message"], "timings": timings}
 
     # Modules 3 + 4: Score
+    t0 = time.time()
     score_result = await scoring.score_company(company_id, db)
+    t1 = time.time()
+    timings['score'] = t1 - t0
     if score_result["status"] == "failed":
         logger.warning("Scoring failed for %s: %s", company_id, score_result.get("message"))
 
     # Module 5: Persona
+    t0 = time.time()
     persona_result = await persona.build_persona(company_id, db)
+    t1 = time.time()
+    timings['persona'] = t1 - t0
     if persona_result["status"] == "failed":
         logger.warning("Persona failed for %s: %s", company_id, persona_result.get("message"))
 
-    return EnrichResult(company_id=company_id, status="done", message="Pipeline complete.")
+    return {"status": "done", "message": "Pipeline complete.", "timings": timings}
 
 
 @router.post("/{company_id}", response_model=EnrichResult)
@@ -48,7 +60,8 @@ async def enrich_one(
     db: AsyncSession = Depends(get_db),
 ):
     """Run the full enrichment pipeline (Modules 2–5) for a single company."""
-    return await _run_full_pipeline(str(company_id), db)
+    res = await _run_full_pipeline(str(company_id), db)
+    return EnrichResult(company_id=company_id, status=res["status"], message=res.get("message"))
 
 
 @router.post("/batch", response_model=list[EnrichResult])
@@ -63,8 +76,8 @@ async def enrich_batch(
     """
     results = []
     for company_id in request.company_ids:
-        result = await _run_full_pipeline(str(company_id), db)
-        results.append(result)
+        res = await _run_full_pipeline(str(company_id), db)
+        results.append(EnrichResult(company_id=company_id, status=res["status"], message=res.get("message")))
         if len(request.company_ids) > 1:
             await asyncio.sleep(settings.ENRICH_DELAY_SECONDS)
     return results
@@ -77,12 +90,35 @@ async def enrich_and_draft(
 ):
     """Run full enrichment pipeline then immediately generate an email draft."""
     from backend.services.email_draft import generate_draft
+    
+    total_start = time.time()
+    
     # Step 1: Enrich
     enrich_result = await _run_full_pipeline(str(company_id), db)
-    if enrich_result.status == "failed":
-        raise HTTPException(status_code=400, detail=enrich_result.message)
+    if enrich_result["status"] == "failed":
+        raise HTTPException(status_code=400, detail=enrich_result.get("message"))
+        
+    timings = enrich_result.get("timings", {})
+    
     # Step 2: Generate email draft
+    t0 = time.time()
     draft_result = await generate_draft(str(company_id), db)
+    t1 = time.time()
+    timings['draft_email'] = t1 - t0
+    
     if draft_result["status"] == "failed":
         raise HTTPException(status_code=400, detail=draft_result.get("message", "Draft generation failed"))
+        
+    total_time = time.time() - total_start
+    
+    logger.info("==================================================")
+    logger.info("ENRICHMENT TIMING REPORT for %s", company_id)
+    logger.info("  1. Scrape + Extraction : %.2f seconds", timings.get('enrich', 0))
+    logger.info("  2. Rule-based Scoring  : %.2f seconds", timings.get('score', 0))
+    logger.info("  3. Persona Generation  : %.2f seconds", timings.get('persona', 0))
+    logger.info("  4. Email Drafting      : %.2f seconds", timings.get('draft_email', 0))
+    logger.info("--------------------------------------------------")
+    logger.info("  TOTAL PIPELINE TIME    : %.2f seconds", total_time)
+    logger.info("==================================================")
+        
     return draft_result
