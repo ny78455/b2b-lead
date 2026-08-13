@@ -2,6 +2,7 @@
 import React from 'react';
 import ScoreBadge from './ScoreBadge';
 import StatusChip from './StatusChip';
+import { deleteLead } from '../lib/api';
 
 export interface Company {
   id: string;
@@ -18,9 +19,19 @@ export interface Company {
 
 interface CompanyTableProps {
   companies: Company[];
+  onLeadDeleted?: () => void;
 }
 
-export default function CompanyTable({ companies }: CompanyTableProps) {
+export default function CompanyTable({ companies, onLeadDeleted }: CompanyTableProps) {
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete ${name}?`)) return;
+    try {
+      await deleteLead(id);
+      if (onLeadDeleted) onLeadDeleted();
+    } catch (err: any) {
+      alert(`Error deleting lead: ${err.message}`);
+    }
+  };
   if (companies.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-12 bg-gray-900/50 rounded-xl border border-gray-800 backdrop-blur-sm">
@@ -40,6 +51,7 @@ export default function CompanyTable({ companies }: CompanyTableProps) {
             <th className="px-6 py-4 font-semibold text-center">Purchase</th>
             <th className="px-6 py-4 font-semibold text-center">Enrichment</th>
             <th className="px-6 py-4 font-semibold text-center">Pipeline</th>
+            <th className="px-6 py-4 font-semibold text-center">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-800/60 text-sm">
@@ -72,6 +84,14 @@ export default function CompanyTable({ companies }: CompanyTableProps) {
               </td>
               <td className="px-6 py-4 text-center">
                 <StatusChip status={c.status} />
+              </td>
+              <td className="px-6 py-4 text-center">
+                <button 
+                  onClick={() => handleDelete(c.id, c.name)}
+                  className="text-red-400 hover:text-red-300 transition-colors text-xs font-semibold px-2 py-1 bg-red-900/30 rounded border border-red-800"
+                >
+                  Delete
+                </button>
               </td>
             </tr>
           ))}
