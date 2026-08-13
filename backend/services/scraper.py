@@ -13,9 +13,9 @@ import gspread
 from playwright.async_api import async_playwright
 
 from backend.config import get_settings
-from backend.database import AsyncSessionLocal
 from backend.models import Company, Contact
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -226,32 +226,54 @@ async def run_scraper(search_queries: list[str]):
         logger.info("Scraping completed.")
 
 async def _sync_single_lead_to_db(query, extracted):
-    async with AsyncSessionLocal() as db:
-        email_val = extracted["email"].strip().lower()
-        company_name = extracted["name"].strip()
-        
-        existing = await db.execute(select(Contact).where(Contact.email == email_val))
-        if existing.scalar_one_or_none():
-            return
-            
-        company = Company(
-            name=company_name,
-            website=extracted["website"] if extracted["website"] != "N/A" else None,
-            phone=extracted["phone"] if extracted["phone"] != "N/A" else None,
-            address=extracted["address"] if extracted["address"] != "N/A" else None,
-            google_maps_url=extracted["url"],
-            search_query=query,
-            enrichment_status="pending",
-            status="new",
-        )
-        db.add(company)
-        await db.flush()
-        
-        contact = Contact(
-            company_id=company.id,
-            email=email_val,
-            source="scraper",
-            confidence="medium",
-        )
-        db.add(contact)
-        await db.commit()
+    """
+    Write the scraped lead into Postgres using a thread-local async engine.
+    We must NOT reuse the global engine/session because this coroutine runs
+    in the scraper's own ProactorEventLoop thread — asyncpg connections are
+    bound to the event loop that created them.
+    """
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=False,
+        pool_size=2,
+        max_overflow=0,
+    )
+    session_factory = async_sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    try:
+        async with session_factory() as db:
+            email_val = extracted["email"].strip().lower()
+            company_name = extracted["name"].strip()
+
+            existing = await db.execute(select(Contact).where(Contact.email == email_val))
+            if existing.scalar_one_or_none():
+                return
+
+            company = Company(
+                name=company_name,
+                website=extracted["website"] if extracted["website"] != "N/A" else None,
+                phone=extracted["phone"] if extracted["phone"] != "N/A" else None,
+                address=extracted["address"] if extracted["address"] != "N/A" else None,
+                google_maps_url=extracted["url"],
+                search_query=query,
+                enrichment_status="pending",
+                status="new",
+            )
+            db.add(company)
+            await db.flush()
+
+            contact = Contact(
+                company_id=company.id,
+                email=email_val,
+                source="scraper",
+                confidence="medium",
+            )
+            db.add(contact)
+            await db.commit()
+            logger.info(f"Synced to DB: {company_name} <{email_val}>")
+    finally:
+        await engine.dispose()
