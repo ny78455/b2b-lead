@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     SENDER_NAME: str = "Your Name"
     SENDER_EMAIL: str = ""                # defaults to GMAIL_USER if left blank
     SENDER_COMPANY: str = "Your Company"
+    CALENDAR_LINK: str = ""               # static calendar scheduling link
 
     # ── Unsubscribe ───────────────────────────────────────────────────────────
     UNSUBSCRIBE_BASE_URL: str = "http://localhost:8000"   # public-facing base URL

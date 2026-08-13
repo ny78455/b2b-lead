@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from backend.models import Campaign, Company, Contact
-from backend.services import llm, calendar
+from backend.services import llm
 from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -42,8 +42,8 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
     contact = contact_result.scalar_one_or_none()
     contact_name = contact.name if (contact and contact.name) else "there"
 
-    # Generate unique Google Meet link for this prospect
-    meeting_link = calendar.generate_meeting_link(company.name)
+    # Use static Google Calendar link from config
+    meeting_link = settings.CALENDAR_LINK
 
     # Call LLM to generate draft
     draft_html = llm.draft_email(
