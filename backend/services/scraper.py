@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 MAX_RESULTS_WITH_EMAIL = 10  # Kept lower for web request reasonable completion time, or can run in background
+STOP_SCRAPING = False
 
 async def human_delay(min_sec=1.5, max_sec=3.0):
     await asyncio.sleep(random.uniform(min_sec, max_sec))
@@ -123,6 +124,9 @@ async def extract_business_data(page, url):
     return data
 
 async def run_scraper(search_queries: list[str]):
+    global STOP_SCRAPING
+    STOP_SCRAPING = False
+    
     logger.info(f"Starting scraper for queries: {search_queries}")
     worksheet, existing_urls, query_success_counts = setup_google_sheets()
     if not worksheet:
@@ -141,6 +145,10 @@ async def run_scraper(search_queries: list[str]):
         page = await context.new_page()
 
         for query in search_queries:
+            if STOP_SCRAPING:
+                logger.info("Scraping stopped by user.")
+                break
+
             current_successes = query_success_counts.get(query, 0)
             target_needed = MAX_RESULTS_WITH_EMAIL - current_successes
 
@@ -195,6 +203,10 @@ async def run_scraper(search_queries: list[str]):
             logger.info(f"Gathered {len(urls_to_check)} new URLs.")
 
             for url in urls_to_check:
+                if STOP_SCRAPING:
+                    logger.info("Scraping stopped by user during extraction.")
+                    break
+                    
                 if target_needed <= 0:
                     break
 
