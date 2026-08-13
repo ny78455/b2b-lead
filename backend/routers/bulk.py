@@ -67,3 +67,60 @@ async def start_bulk_send(background_tasks: BackgroundTasks):
     """
     background_tasks.add_task(run_bulk_send_task)
     return {"status": "started", "message": "Bulk mailing pipeline started in the background."}
+
+
+async def run_enrich_all_task():
+    """Background task: enrich all 'new' companies."""
+    async with AsyncSessionLocal() as db:
+        from backend.routers.enrich import _run_full_pipeline
+        result = await db.execute(select(Company).where(Company.status == "new"))
+        companies = result.scalars().all()
+        logger.info(f"Enrich all: {len(companies)} companies.")
+        for company in companies:
+            try:
+                await _run_full_pipeline(str(company.id), db)
+                await asyncio.sleep(1)
+            except Exception as exc:
+                logger.error(f"Enrich all failed for {company.name}: {exc}")
+
+
+@router.post("/enrich-all")
+async def start_enrich_all(background_tasks: BackgroundTasks):
+    """Enrich all 'new' leads in the background."""
+    background_tasks.add_task(run_enrich_all_task)
+    return {"status": "started", "message": "Enrichment started for all new leads."}
+
+
+async def run_send_all_task():
+    """Background task: generate drafts and send for all 'enriched' companies."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Company).where(Company.status == "enriched")
+        )
+        companies = result.scalars().all()
+        logger.info(f"Send all: {len(companies)} enriched companies.")
+        for company in companies:
+            try:
+                draft_res = await generate_draft(str(company.id), db)
+                if draft_res["status"] == "failed":
+                    continue
+                campaign_id = draft_res["campaign_id"]
+                camp_res = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+                campaign = camp_res.scalar_one_or_none()
+                if campaign:
+                    campaign.status = "approved"
+                    await db.commit()
+                    send_res = await send_campaign(str(campaign_id), db)
+                    if send_res["status"] == "failed":
+                        campaign.status = "pending_review"
+                        await db.commit()
+                await asyncio.sleep(1)
+            except Exception as exc:
+                logger.error(f"Send all failed for {company.name}: {exc}")
+
+
+@router.post("/send-all")
+async def start_send_all(background_tasks: BackgroundTasks):
+    """Generate drafts and send emails for all enriched leads."""
+    background_tasks.add_task(run_send_all_task)
+    return {"status": "started", "message": "Sending emails for all enriched leads in the background."}
