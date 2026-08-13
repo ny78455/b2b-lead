@@ -173,6 +173,21 @@ async def list_leads(
         )
     return items
 
+@router.delete("/{company_id}")
+async def delete_lead(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a company and its associated contacts."""
+    result = await db.execute(select(Company).where(Company.id == str(company_id)))
+    company = result.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+        
+    await db.delete(company)
+    await db.commit()
+    return {"status": "deleted"}
+
 
 # ── Unsubscribe endpoint (compliance) ─────────────────────────────────────────
 

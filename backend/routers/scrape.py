@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import List
 
 from backend.services.scraper import run_scraper
+import backend.services.scraper as scraper_service
 
 router = APIRouter(prefix="/api/scrape", tags=["scrape"])
 logger = logging.getLogger(__name__)
@@ -56,3 +57,11 @@ async def start_scraping(request: ScrapeRequest):
         "status": "started",
         "message": f"Scraping started in the background for {len(request.queries)} queries.",
     }
+
+@router.post("/stop")
+async def stop_scraping():
+    """
+    Sets the STOP_SCRAPING flag to halt the background scraper.
+    """
+    scraper_service.STOP_SCRAPING = True
+    return {"status": "stopped", "message": "Scraping halt signal sent. The scraper will stop shortly."}
