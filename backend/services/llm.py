@@ -293,11 +293,11 @@ def draft_email(
     contact_name: str,
     sender_name: str,
     sender_company: str,
+    meeting_link: str,
+    website: str,
 ) -> Optional[str]:
     """
     Returns a valid HTML string (120-160 words) or None on failure.
-    The {{unsubscribe_link}} token is preserved in the output for the sender
-    service to replace with a real URL before sending.
     """
     prompt = f"""You are a professional B2B sales writer. Write a short, genuine-sounding
 outreach email (120-160 words).
@@ -307,11 +307,11 @@ Rules:
   or claims about the recipient's company.
 - Reference exactly one specific, verifiable detail about them.
 - Name exactly one plausible pain point and how a RAG solution helps.
-- End with a single low-friction question inviting a reply.
-- Output VALID HTML only: include a header, greeting, body paragraphs, one CTA
-  <a> button, and a footer containing the sender name/company and the literal
-  token {{{{unsubscribe_link}}}} as an anchor href — e.g.:
-  <a href="{{{{unsubscribe_link}}}}">Unsubscribe</a>
+- End with a call to action to schedule a 10-minute chat using this meeting link: {meeting_link}
+- Output CLEAN and VALID HTML only. DO NOT wrap your output in markdown ```html code blocks. Just output the raw HTML tags.
+- Use simple, clean HTML styling (e.g. <p style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">).
+- Format the CTA as a highly visible, clickable HTML button or link.
+- In the signature footer, include the sender name, company, and this website link: {website}
 - No superlatives, no fake urgency, no "I noticed you're the perfect fit" filler.
 
 Persona summary:
@@ -323,12 +323,10 @@ Sender: {sender_name}, {sender_company}"""
 
     try:
         html = _call(prompt)
-        # Guarantee the unsubscribe token is present (compliance check)
-        if "{{unsubscribe_link}}" not in html and "unsubscribe_link" not in html:
-            html += (
-                '\n<p style="font-size:11px;color:#888;">'
-                '<a href="{{unsubscribe_link}}">Unsubscribe</a></p>'
-            )
+        
+        # Strip markdown fences if the model still outputs them
+        html = html.replace('```html', '').replace('```', '').strip()
+        
         return html
     except Exception as exc:
         logger.error("Email draft failed: %s", exc)
