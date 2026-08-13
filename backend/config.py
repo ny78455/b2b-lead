@@ -3,8 +3,12 @@ config.py — All settings loaded from .env / environment variables.
 
 Copy .env.example → .env and fill in real values before running.
 """
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import os
+from pathlib import Path
 from functools import lru_cache
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BASE_DIR = Path(__file__).parent
 
 
 class Settings(BaseSettings):
@@ -44,7 +48,7 @@ class Settings(BaseSettings):
     IMAP_POLL_INTERVAL_SECONDS: int = 300                 # 5 minutes
 
     # ── Google Sheets (Module 1 staging area) ─────────────────────────────────
-    GSPREAD_CREDENTIALS_FILE: str = "credentials.json"   # service-account JSON
+    GSPREAD_CREDENTIALS_FILE: str = str(BASE_DIR / "credentials.json")   # service-account JSON
     SPREADSHEET_NAME: str = "Google Maps Leads"
 
     # ── Volume caps ───────────────────────────────────────────────────────────
