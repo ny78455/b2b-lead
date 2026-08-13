@@ -19,6 +19,65 @@ export async function deleteLead(id: string) {
   return res.json();
 }
 
+export async function deleteAllLeads() {
+  const res = await fetch(`${API_BASE_URL}/leads`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to delete all leads');
+  return res.json();
+}
+
+export async function enrichLead(companyId: string) {
+  const res = await fetch(`${API_BASE_URL}/enrich/${companyId}`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || 'Enrichment failed');
+  }
+  return res.json();
+}
+
+export async function enrichAndDraftLead(companyId: string) {
+  const res = await fetch(`${API_BASE_URL}/enrich/${companyId}/draft`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || 'Enrichment + draft failed');
+  }
+  return res.json(); // returns { campaign_id, ... }
+}
+
+export async function getCampaign(campaignId: string) {
+  const res = await fetch(`${API_BASE_URL}/campaigns/${campaignId}`);
+  if (!res.ok) throw new Error('Failed to fetch campaign');
+  return res.json();
+}
+
+export async function sendCampaign(campaignId: string) {
+  const res = await fetch(`${API_BASE_URL}/campaigns/${campaignId}/approve`, {
+    method: 'PUT',
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || 'Failed to send email');
+  }
+  return res.json();
+}
+
+export async function enrichAllLeads() {
+  const res = await fetch(`${API_BASE_URL}/bulk/enrich-all`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to start enrich all');
+  return res.json();
+}
+
+export async function sendAllLeads() {
+  const res = await fetch(`${API_BASE_URL}/bulk/send-all`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to start send all');
+  return res.json();
+}
+
 export async function fetchPendingCampaigns() {
   const res = await fetch(`${API_BASE_URL}/campaigns/pending`);
   if (!res.ok) throw new Error('Failed to fetch campaigns');
