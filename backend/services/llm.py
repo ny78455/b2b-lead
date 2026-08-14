@@ -89,8 +89,9 @@ Rules:
 - End with a call to action to schedule a 10-minute chat using this meeting link: {meeting_link}
 - Output CLEAN and VALID HTML only. DO NOT wrap your output in markdown ```html code blocks. Just output the raw HTML tags.
 - DO NOT include a "Subject:" line in the output.
-- Structure your email using proper HTML <p> tags for paragraphs. 
-- Format the CTA as a highly visible, clickable HTML button or link.
+- Structure your email using proper HTML <p> tags for paragraphs. Use `<br>` sparingly. Ensure there are blank lines between paragraphs.
+- For the call to action, use EXACTLY this HTML code for the button:
+  <a href="{meeting_link}" style="display: inline-block; padding: 10px 20px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 15px; margin-bottom: 15px;">Schedule a 10-Min Chat</a>
 - In the signature footer, include the sender name, company, and this website link: {website}
 - No superlatives, no fake urgency, no "I noticed you're the perfect fit" filler.
 
@@ -109,10 +110,13 @@ Sender: {sender_name}, {sender_company}"""
     # Degraded-mode fallback: pipeline must never fully block on an API failure.
     # This is a plain template merge, NOT an LLM call — mark it clearly so
     # these drafts are never mistaken for personalized output downstream.
+    
+    button_html = f'<a href="{meeting_link}" style="display: inline-block; padding: 10px 20px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 15px; margin-bottom: 15px;">Schedule a 10-Min Chat</a>'
+    
     fallback_html = (
-        f"<p>Hi {contact_name or 'there'},</p>\n"
-        f"<p>{persona_summary}</p>\n"
-        f"<p><a href='{meeting_link}'>Grab 10 minutes on my calendar</a></p>\n"
+        f"<p>Hi {contact_name or 'there'},</p>\n\n"
+        f"<p>{persona_summary}</p>\n\n"
+        f"{button_html}\n\n"
         f"<p>— {sender_name}, {sender_company} &middot; {website}</p>"
     )
     return {"html": fallback_html, "draft_source": "template_fallback"}

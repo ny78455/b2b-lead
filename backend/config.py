@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # ── LLM — Gemini API ──────────────────────────────────────────────────────
     GEMINI_API_KEY: str
-    GEMINI_MODEL: str = "gemini-1.5-flash"   # Gemini API model name
+    GEMINI_MODEL: str = "gemini-2.5-flash-lite"   # Gemini API model name
 
     # ── Email sending (Gmail SMTP) ─────────────────────────────────────────────
     # Use a Gmail App Password — NOT your regular account password.
