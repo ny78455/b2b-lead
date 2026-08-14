@@ -17,14 +17,9 @@ class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://b2b_user:b2b_pass@localhost:5432/b2b"
 
-    # ── LLM — Gemma 4 2B (local, PRIMARY) ────────────────────────────────────
-    # HuggingFace model ID to load locally via transformers.
-    GEMMA_LOCAL_MODEL_ID: str = "google/gemma-4-2b-it"
-
-    # ── LLM — Gemini API (FALLBACK, used only when Gemma local fails) ─────────
-    # Leave GEMINI_API_KEY empty ("") to disable the fallback entirely.
-    GEMINI_API_KEY: str = ""
-    GEMMA_MODEL: str = "gemma-2-9b-it"   # Gemini API model name for the fallback
+    # ── LLM — Gemini API ──────────────────────────────────────────────────────
+    GEMINI_API_KEY: str
+    GEMINI_MODEL: str = "gemini-1.5-flash"   # Gemini API model name
 
     # ── Email sending (Gmail SMTP) ─────────────────────────────────────────────
     # Use a Gmail App Password — NOT your regular account password.

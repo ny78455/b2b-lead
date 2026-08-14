@@ -56,6 +56,9 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
         website="https://www.vantrade.online/",
     )
 
+    if not draft_html:
+        return {"status": "failed", "message": "LLM failed to generate email draft."}
+
     # Sometimes the LLM ignores instructions and includes a subject line anyway
     import re
     draft_html = re.sub(r"^(?i)(?:<b>)?subject:.*?(?:</b>)?(?:<br>)?\s*", "", draft_html.strip(), flags=re.MULTILINE).strip()
