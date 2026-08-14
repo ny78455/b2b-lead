@@ -4,8 +4,7 @@ services/enrichment.py — Module 2: Company Enrichment
 For each company website:
   1. Fetch and respect robots.txt — mark failed if scraping is disallowed.
   2. Fetch homepage + /about + /careers (up to 3 pages).
-  3. Pass combined text to Gemma LLM to extract:
-       industry, employees_estimate, summary, tech_stack_hints
+  3. Extract fields (industry, employees_estimate, summary, tech_stack_hints) using deterministic rules.
   4. Update the database record.
 
 Constraints (spec §2):
@@ -18,7 +17,6 @@ import logging
 import re
 import asyncio
 from urllib.parse import urljoin, urlparse
-from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
@@ -27,7 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from backend.models import Company
-from backend.services import llm
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +34,49 @@ HEADERS = {
 }
 TIMEOUT = 15.0  # seconds
 MAX_TEXT_CHARS = 3000  # cap text sent to LLM per page
+
+# ── Extraction Rules ─────────────────────────────────────────────────────────
+
+INDUSTRY_KEYWORDS = {
+    "restaurant": ["restaurant", "menu", "dining", "cuisine"],
+    "legal": ["law firm", "attorney", "legal services", "lawyer"],
+    "medical": ["clinic", "patients", "medical", "healthcare", "dental"],
+    "hospitality": ["hotel", "resort", "boutique hotel", "hospitality"],
+    "home_services": ["plumbing", "roofing", "hvac", "contractor"],
+}
+
+EMPLOYEE_COUNT_PATTERN = re.compile(
+    r"(team of|over|more than)?\s*(\d{1,4})\s*(\+)?\s*(employees|team members|staff)",
+    re.IGNORECASE,
+)
+
+TECH_KEYWORDS = [
+    "wordpress", "shopify", "react", "salesforce", "hubspot",
+    "openai", "langchain", "huggingface", "zendesk", "intercom",
+]
+
+def _extract_industry(text: str) -> str | None:
+    lowered = text.lower()
+    for label, keywords in INDUSTRY_KEYWORDS.items():
+        if any(kw in lowered for kw in keywords):
+            return label
+    return None
+
+def _extract_employees(text: str) -> str | None:
+    match = EMPLOYEE_COUNT_PATTERN.search(text)
+    return match.group(0).strip() if match else None
+
+def _extract_summary(soup: BeautifulSoup, text: str) -> str | None:
+    meta = soup.find("meta", attrs={"name": "description"})
+    if meta and meta.get("content"):
+        return meta["content"].strip()[:300]
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    return " ".join(sentences[:2]).strip() or None
+
+def _extract_tech_stack(text: str) -> str | None:
+    lowered = text.lower()
+    hits = [kw for kw in TECH_KEYWORDS if kw in lowered]
+    return ", ".join(hits) if hits else None
 
 
 # ── Robots.txt check ──────────────────────────────────────────────────────────
@@ -63,26 +103,29 @@ def _is_scraping_allowed(website: str) -> bool:
 
 # ── Page fetching ─────────────────────────────────────────────────────────────
 
-async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
-    """Fetch a URL and return cleaned body text (max MAX_TEXT_CHARS chars)."""
+async def _fetch_page_data(client: httpx.AsyncClient, url: str) -> tuple[BeautifulSoup | None, str]:
+    """Fetch a URL and return (soup, cleaned_text)."""
     try:
         resp = await client.get(url, timeout=TIMEOUT, follow_redirects=True)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
+        
+        # We need the soup for _extract_summary, so we return it before decomposing tags
+        soup_copy = BeautifulSoup(resp.text, "html.parser")
 
-        # Remove noise tags
+        # Remove noise tags for plain text extraction
         for tag in soup(["script", "style", "nav", "footer", "head", "noscript"]):
             tag.decompose()
 
         text = " ".join(soup.get_text(separator=" ").split())
-        return text[:MAX_TEXT_CHARS]
+        return soup_copy, text[:MAX_TEXT_CHARS]
     except Exception as exc:
         logger.debug("Failed to fetch %s: %s", url, exc)
-        return ""
+        return None, ""
 
 
-async def _gather_site_text(website: str) -> str:
-    """Fetch homepage + /about + /careers and concatenate."""
+async def _gather_site_data(website: str) -> tuple[BeautifulSoup | None, str]:
+    """Fetch homepage + /about + /careers and concatenate text. Returns (homepage_soup, combined_text)."""
     base = website if website.startswith("http") else f"https://{website}"
     parsed = urlparse(base)
     origin = f"{parsed.scheme}://{parsed.netloc}"
@@ -95,26 +138,29 @@ async def _gather_site_text(website: str) -> str:
 
     async with httpx.AsyncClient(headers=HEADERS, verify=False) as client:
         # Fetch all pages concurrently
-        tasks = [_fetch_text(client, url) for url in pages]
+        tasks = [_fetch_page_data(client, url) for url in pages]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         texts = []
-        for url, result in zip(pages, results):
+        homepage_soup = None
+        for i, (url, result) in enumerate(zip(pages, results)):
             if isinstance(result, Exception):
                 logger.debug("Gather failed for %s: %s", url, result)
-            elif result:  # if text was returned
-                texts.append(f"[Page: {url}]\n{result}")
+            else:
+                soup, text = result
+                if i == 0:
+                    homepage_soup = soup
+                if text:
+                    texts.append(f"[Page: {url}]\n{text}")
 
-    return "\n\n".join(texts)
-
-
+    return homepage_soup, "\n\n".join(texts)
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 async def enrich_company(company_id: str, db: AsyncSession) -> dict:
     """
-    Run the full Module 2 enrichment pipeline for one company.
+    Run the full Module 2 enrichment pipeline for one company using deterministic rules.
     Returns {"status": "done"|"failed", "message": str}.
     """
     result = await db.execute(select(Company).where(Company.id == company_id))
@@ -136,30 +182,24 @@ async def enrich_company(company_id: str, db: AsyncSession) -> dict:
         return {"status": "failed", "message": "robots.txt disallows scraping."}
 
     # Step 2 — gather page text
-    combined_text = await _gather_site_text(company.website)
+    homepage_soup, combined_text = await _gather_site_data(company.website)
     if not combined_text.strip():
         company.enrichment_status = "failed"
         await db.commit()
         return {"status": "failed", "message": "Could not retrieve any page content."}
 
-    # Step 3 — LLM Unified extraction, scoring, and persona
-    fields = llm.extract_and_score_and_persona(combined_text) or {}
+    # Step 3 — Extraction (Rule-based)
+    # We pass the homepage_soup if available, else an empty soup.
+    # To avoid passing None, we ensure we have a valid soup for the summary rule.
+    soup = homepage_soup if homepage_soup else BeautifulSoup("", "html.parser")
 
-    # Step 4 — persist (null fields stay null — never fabricated)
-    company.industry = fields.get("industry")
-    company.employees_estimate = fields.get("employees_estimate")
-    company.summary = fields.get("summary")
+    company.industry = _extract_industry(combined_text)
+    company.employees_estimate = _extract_employees(combined_text)
+    company.summary = _extract_summary(soup, combined_text)
+    company.tech_stack_hints = _extract_tech_stack(combined_text)
     
-    tech = fields.get("tech_stack_hints")
-    if isinstance(tech, list):
-        company.tech_stack_hints = ", ".join(str(x) for x in tech)
-    else:
-        company.tech_stack_hints = tech
-    
-    # Save the consolidated RAG score and Persona generated in this single step
-    company.rag_score = int(fields.get("rag_score") or 0)
-    company.rag_rationale = fields.get("rag_rationale")
-    company.persona_summary = fields.get("persona_summary")
+    # We leave rag_score, rag_rationale, and persona_summary untouched here.
+    # They will be populated by scoring.py and persona.py.
 
     company.enrichment_status = "done"
     company.status = "enriched"
