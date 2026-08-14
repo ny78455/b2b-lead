@@ -21,8 +21,8 @@ async def test_generate_draft_includes_unsubscribe():
     # First execute returns company, second returns contact
     db_mock.execute.return_value.scalar_one_or_none.side_effect = [company, contact]
     
-    # Mock LLM to return HTML without unsubscribe link
-    with patch('backend.services.llm.draft_email', return_value="<p>Hi John,</p><p>Buy our stuff.</p>"):
+    # Mock LLM to return dictionary
+    with patch('backend.services.llm.draft_email', return_value={"html": "<p>Hi John,</p><p>Buy our stuff.</p>", "draft_source": "gemini"}):
         res = await generate_draft(str(company.id), db_mock)
         
         assert res["status"] == "done"
