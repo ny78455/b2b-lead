@@ -66,12 +66,46 @@ def generate_queries(seed_niches: list[str], seed_locations: list[str], n: int =
 
 # ── 6. Email draft (Module 6) ─────────────────────────────────────────────────
 
-def _first_sentence(text: str) -> str:
-    """Grab the first real sentence out of persona_summary for the fallback path."""
+# Generic boilerplate openers from persona.build_persona_text() that make weak
+# hooks on their own — skip these in favor of a more concrete sentence.
+_WEAK_HOOK_PATTERNS = (
+    re.compile(r"^\S.*\boperates in the\b.*\bindustry\.?$", re.IGNORECASE),
+    re.compile(r"^Estimated size:", re.IGNORECASE),
+    re.compile(r"^Purchase-intent score:", re.IGNORECASE),
+)
+
+
+def _pick_personalization_detail(text: str) -> str:
+    """
+    Pick the most concrete, specific-sounding sentence out of persona_summary
+    to use as the fallback email's hook. Prefers sentences with real detected
+    signals (e.g. "Matched signals: ...") or tech-stack mentions over generic
+    template boilerplate like "X operates in the Y industry."
+    """
     if not text:
         return ""
-    match = re.split(r"(?<=[.!?])\s+", text.strip())
-    return match[0].strip() if match else text.strip()
+
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+    if not sentences:
+        return ""
+
+    # 1. Prefer a sentence naming concrete RAG-fit signals — most specific.
+    for s in sentences:
+        if "matched signals" in s.lower() or "signals:" in s.lower():
+            return s
+
+    # 2. Next best: a sentence mentioning specific tools/tech found on their site.
+    for s in sentences:
+        if "tech" in s.lower() or "tools mentioned" in s.lower():
+            return s
+
+    # 3. Otherwise, first sentence that isn't generic boilerplate.
+    for s in sentences:
+        if not any(p.search(s) for p in _WEAK_HOOK_PATTERNS):
+            return s
+
+    # 4. Nothing better available — fall back to the first sentence anyway.
+    return sentences[0]
 
 
 def draft_email(
@@ -139,20 +173,37 @@ Rules:
 
     # Degraded-mode fallback: pipeline must never fully block on an API failure.
     # This is a plain template merge, NOT an LLM call, so it leans on whatever
-    # real detail is available from persona_summary rather than staying fully
-    # generic — but it is still clearly marked as template_fallback so it's
-    # never mistaken for a personalized draft downstream.
-    hook = _first_sentence(persona_summary) or f"{company_name or 'your company'} looks like a strong fit for what we do."
+    # real, specific detail is available from persona_summary rather than
+    # staying fully generic — but it is still clearly marked as
+    # template_fallback so it's never mistaken for a personalized draft
+    # downstream. Kept short and conversational (reply-optimized), since a
+    # degraded-mode email has no LLM-crafted nuance to lean on otherwise:
+    # one concrete hook, one plain-English pain point, one low-friction
+    # question as the primary ask, the meeting link only as a secondary
+    # option, and a PS line (reliably read even when the body is skimmed).
+    hook = _pick_personalization_detail(persona_summary)
+    hook = hook.rstrip(".") if hook else ""
+    company_label = company_name or "your team"
+
+    if hook:
+        opener = f"Came across {company_name or 'your company'} — {hook[0].lower() + hook[1:]}."
+    else:
+        opener = f"Came across {company_label} and wanted to reach out directly."
 
     fallback_html = (
         f"<p>Hi {contact_name or 'there'},</p>\n\n"
-        f"<p>{hook}</p>\n\n"
-        f"<p>That's usually the point where teams start losing time to repetitive "
-        f"questions and scattered documentation — which is exactly what a "
-        f"RAG-based knowledge assistant from {sender_company} is built to fix.</p>\n\n"
-        f"<p>Worth a quick look for {company_name or 'your team'}? I'd love to hear "
-        f"what's currently working and where it's falling short.</p>\n\n"
+        f"<p>{opener}</p>\n\n"
+        f"<p>Most teams in that spot end up losing hours to the same repeated "
+        f"questions buried across docs, tickets, and inboxes. We build "
+        f"AI search tools that let your team (or customers) get a straight "
+        f"answer instantly from your own content, instead of digging for it.</p>\n\n"
+        f"<p>Is that something worth a quick reply about — even just to say "
+        f"whether it's relevant right now?</p>\n\n"
+        f"<p>Or if it's easier to just grab time:</p>\n\n"
         f"{button_html}\n\n"
-        f"<p>— {sender_name}, {sender_company} &middot; {website}</p>"
+        f"<p>— {sender_name}, {sender_company} &middot; {website}</p>\n\n"
+        f"<p style=\"font-size: 13px; color: #666;\">P.S. Even a one-line "
+        f"\"not right now\" is genuinely useful — I'll make sure we don't "
+        f"bother {company_label} again.</p>"
     )
     return {"html": fallback_html, "draft_source": "template_fallback"}

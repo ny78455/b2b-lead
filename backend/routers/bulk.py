@@ -16,6 +16,12 @@ from typing import List, Optional
 router = APIRouter(prefix="/api/bulk", tags=["bulk"])
 logger = logging.getLogger(__name__)
 
+automation_state = {
+    "is_running": False,
+    "current_stage": "idle",
+    "target_leads": 0
+}
+
 async def run_bulk_send_task():
     """Background task to automate enriching, drafting, and sending emails."""
     async with AsyncSessionLocal() as db:
@@ -159,6 +165,11 @@ async def run_automate_task(request: AutomateRequest):
     3. Approve & Send all pending campaigns
     4. Delete all leads from DB and clear Google Sheet
     """
+    global automation_state
+    automation_state["is_running"] = True
+    automation_state["current_stage"] = "scraping"
+    automation_state["target_leads"] = request.target_leads
+    
     logger.info("Automation flow started.")
     
     # 1. Scrape
@@ -173,7 +184,7 @@ async def run_automate_task(request: AutomateRequest):
         logger.error(f"Scraper error in automation flow: {e}")
     
     # 2. Bulk Enrich
-    # We call the underlying logic directly instead of firing background tasks
+    automation_state["current_stage"] = "enriching"
     logger.info("Automation flow: Starting enrichment...")
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Company).where(Company.status == "new"))
@@ -186,6 +197,7 @@ async def run_automate_task(request: AutomateRequest):
                 logger.error(f"Enrichment error for {company.name}: {e}")
 
     # 3. Bulk Draft
+    automation_state["current_stage"] = "drafting"
     logger.info("Automation flow: Starting drafting...")
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Company).where(Company.status == "enriched"))
@@ -198,6 +210,7 @@ async def run_automate_task(request: AutomateRequest):
                 logger.error(f"Drafting error for {company.name}: {e}")
 
     # 4. Bulk Send
+    automation_state["current_stage"] = "sending"
     logger.info("Automation flow: Starting sending...")
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Campaign).where(Campaign.status == "pending_review"))
@@ -215,6 +228,7 @@ async def run_automate_task(request: AutomateRequest):
                 logger.error(f"Send error for campaign {campaign.id}: {e}")
 
     # 5. Cleanup
+    automation_state["current_stage"] = "cleanup"
     logger.info("Automation flow: Starting cleanup...")
     async with AsyncSessionLocal() as db:
         try:
@@ -239,6 +253,9 @@ async def run_automate_task(request: AutomateRequest):
         logger.error(f"Cleanup Sheets error: {e}")
 
     logger.info("Automation flow completed successfully.")
+    
+    automation_state["is_running"] = False
+    automation_state["current_stage"] = "idle"
 
 
 @router.post("/automate")
@@ -246,5 +263,40 @@ async def start_automate(request: AutomateRequest, background_tasks: BackgroundT
     """
     Runs the full end-to-end automated pipeline (Scrape -> Enrich -> Draft -> Send -> Cleanup).
     """
+    if automation_state["is_running"]:
+        return {"status": "error", "message": "Automation flow is already running."}
+    
     background_tasks.add_task(run_automate_task, request)
     return {"status": "started", "message": "Full automated flow started in the background."}
+
+from sqlalchemy import func
+
+@router.get("/progress")
+async def get_automation_progress(db: AsyncSession = Depends(get_db)):
+    """
+    Returns the real-time progress of the automation flow.
+    """
+    if not automation_state["is_running"]:
+        return {
+            "is_running": False,
+            "current_stage": automation_state["current_stage"],
+            "target_leads": automation_state["target_leads"],
+            "leads_generated": 0,
+            "emails_sent": 0
+        }
+    
+    # Count leads generated
+    res_leads = await db.execute(select(func.count(Company.id)))
+    leads_generated = res_leads.scalar() or 0
+    
+    # Count emails sent
+    res_emails = await db.execute(select(func.count(Campaign.id)).where(Campaign.status == "sent"))
+    emails_sent = res_emails.scalar() or 0
+    
+    return {
+        "is_running": automation_state["is_running"],
+        "current_stage": automation_state["current_stage"],
+        "target_leads": automation_state["target_leads"],
+        "leads_generated": leads_generated,
+        "emails_sent": emails_sent
+    }
