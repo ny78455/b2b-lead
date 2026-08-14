@@ -109,6 +109,8 @@ class Campaign(Base):
     status: Mapped[str] = mapped_column(
         String(32), default="pending_review", index=True
     )  # pending_review | approved | sent | rejected
+    
+    draft_source: Mapped[str | None] = mapped_column(String(64))  # e.g. "gemini" | "template_fallback"
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

@@ -18,12 +18,7 @@ playwright==1.44.0
 urllib3==2.2.1
 
 # ── LLM — Gemma 4 2B local (PRIMARY) ─────────────────────────────────────────
-# transformers + a PyTorch backend are required to load the model locally.
-# Install PyTorch separately following https://pytorch.org/get-started/locally/
 # (choose the CUDA build if you have a GPU, otherwise the CPU build).
-transformers>=4.47.0
-accelerate>=0.30.0          # required for device_map="auto"
-sentencepiece>=0.2.0        # Gemma tokeniser dependency
 
 # ── LLM — Gemini API (FALLBACK, optional) ────────────────────────────────────
 # Only needed if you want the Gemini API fallback to work.
