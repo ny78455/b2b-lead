@@ -167,3 +167,16 @@ export async function stopScraping() {
   }
   return res.json();
 }
+
+export async function startAutomate(queries: string[], targetLeads: number) {
+  const res = await fetch(`${API_BASE_URL}/bulk/automate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ queries, target_leads: targetLeads }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || 'Failed to start automation flow');
+  }
+  return res.json();
+}
