@@ -14,7 +14,6 @@ COPY backend/ ./backend/
 
 # Copy the shared queries and credentials if any exist in the root
 COPY queries.json ./queries.json
-COPY credentials.json ./credentials.json
 
 WORKDIR /app/backend
 
