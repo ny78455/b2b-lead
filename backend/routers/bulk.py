@@ -9,6 +9,9 @@ from backend.models import Company, Campaign
 from backend.routers.enrich import _run_full_pipeline
 from backend.services.email_draft import generate_draft
 from backend.services.sender import send_campaign
+from backend.services.scraper import run_scraper, setup_google_sheets
+from pydantic import BaseModel
+from typing import List, Optional
 
 router = APIRouter(prefix="/api/bulk", tags=["bulk"])
 logger = logging.getLogger(__name__)
@@ -124,3 +127,100 @@ async def start_send_all(background_tasks: BackgroundTasks):
     """Generate drafts and send emails for all enriched leads."""
     background_tasks.add_task(run_send_all_task)
     return {"status": "started", "message": "Sending emails for all enriched leads in the background."}
+
+class AutomateRequest(BaseModel):
+    queries: List[str]
+    target_leads: int
+    timeout_minutes: Optional[int] = 10
+
+async def run_automate_task(request: AutomateRequest):
+    """
+    1. Scrape with timeout
+    2. Enrich & Draft all new leads
+    3. Approve & Send all pending campaigns
+    4. Delete all leads from DB and clear Google Sheet
+    """
+    logger.info("Automation flow started.")
+    
+    # 1. Scrape
+    try:
+        await run_scraper(request.queries, target_leads=request.target_leads, timeout_minutes=request.timeout_minutes)
+    except Exception as e:
+        logger.error(f"Scraper error in automation flow: {e}")
+    
+    # 2. Bulk Enrich
+    # We call the underlying logic directly instead of firing background tasks
+    logger.info("Automation flow: Starting enrichment...")
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Company).where(Company.status == "new"))
+        companies = result.scalars().all()
+        for company in companies:
+            try:
+                await _run_full_pipeline(str(company.id), db)
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"Enrichment error for {company.name}: {e}")
+
+    # 3. Bulk Draft
+    logger.info("Automation flow: Starting drafting...")
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Company).where(Company.status == "enriched"))
+        companies = result.scalars().all()
+        for company in companies:
+            try:
+                await generate_draft(str(company.id), db)
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"Drafting error for {company.name}: {e}")
+
+    # 4. Bulk Send
+    logger.info("Automation flow: Starting sending...")
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Campaign).where(Campaign.status == "pending_review"))
+        campaigns = result.scalars().all()
+        for campaign in campaigns:
+            try:
+                campaign.status = "approved"
+                await db.commit()
+                send_res = await send_campaign(str(campaign.id), db)
+                if send_res["status"] == "failed":
+                    campaign.status = "pending_review"
+                    await db.commit()
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"Send error for campaign {campaign.id}: {e}")
+
+    # 5. Cleanup
+    logger.info("Automation flow: Starting cleanup...")
+    async with AsyncSessionLocal() as db:
+        try:
+            # This will cascade and delete contacts & campaigns as well.
+            await db.execute(Company.__table__.delete())
+            await db.commit()
+            logger.info("Deleted all leads from the database.")
+        except Exception as e:
+            logger.error(f"Cleanup DB error: {e}")
+
+    try:
+        worksheet, _, _ = setup_google_sheets()
+        if worksheet:
+            # Delete all rows except the header
+            all_values = worksheet.get_all_values()
+            if len(all_values) > 1:
+                # Need to use clear and re-insert header or delete rows
+                worksheet.clear()
+                worksheet.append_row(["Search Query", "Business Name", "Phone Number", "Email", "Website URL", "Address", "Google Maps URL"])
+                logger.info("Cleared Google Sheet.")
+    except Exception as e:
+        logger.error(f"Cleanup Sheets error: {e}")
+
+    logger.info("Automation flow completed successfully.")
+
+
+@router.post("/automate")
+async def start_automate(request: AutomateRequest, background_tasks: BackgroundTasks):
+    """
+    Runs the full end-to-end automated pipeline (Scrape -> Enrich -> Draft -> Send -> Cleanup).
+    """
+    background_tasks.add_task(run_automate_task, request)
+    return {"status": "started", "message": "Full automated flow started in the background."}
