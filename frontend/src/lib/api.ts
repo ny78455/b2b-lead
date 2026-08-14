@@ -180,3 +180,17 @@ export async function startAutomate(queries: string[], targetLeads: number) {
   }
   return res.json();
 }
+
+export interface AutomationProgress {
+  is_running: boolean;
+  current_stage: string;
+  target_leads: number;
+  leads_generated: number;
+  emails_sent: number;
+}
+
+export async function fetchProgress(): Promise<AutomationProgress> {
+  const res = await fetch(`${API_BASE_URL}/bulk/progress`);
+  if (!res.ok) throw new Error('Failed to fetch progress');
+  return res.json();
+}
