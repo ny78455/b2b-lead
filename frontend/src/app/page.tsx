@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { fetchLeads, startScraping, startBulkSending, stopScraping, enrichAllLeads, sendAllLeads, deleteAllLeads } from '../lib/api';
+import { fetchLeads, startScraping, startBulkSending, stopScraping, enrichAllLeads, sendAllLeads, deleteAllLeads, fetchQueries } from '../lib/api';
 import CompanyTable, { Company } from '../components/CompanyTable';
 
 export default function CRMDashboard() {
@@ -11,6 +11,8 @@ export default function CRMDashboard() {
   const [page, setPage] = useState(1);
   const [scrapeQuery, setScrapeQuery] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [targetLeads, setTargetLeads] = useState<number>(1000);
+  const [loadedQueries, setLoadedQueries] = useState<string[]>([]);
 
   const loadData = async () => {
     setLoading(true);
@@ -49,6 +51,32 @@ export default function CRMDashboard() {
       alert("Stop signal sent! Scraping will halt shortly.");
     } catch (err: any) {
       alert(`Error stopping campaign: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleFetchQueries = async () => {
+    try {
+      const queries = await fetchQueries();
+      setLoadedQueries(queries);
+      alert(`Loaded ${queries.length} queries successfully.`);
+    } catch (err: any) {
+      alert(`Error loading queries: ${err.message}`);
+    }
+  };
+
+  const handleStartBulkCampaign = async () => {
+    if (loadedQueries.length === 0) {
+      alert("Please fetch queries first.");
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await startScraping(loadedQueries, targetLeads);
+      alert(`Bulk campaign started for ${targetLeads} target leads using ${loadedQueries.length} queries.`);
+    } catch (err: any) {
+      alert(`Error starting bulk campaign: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -181,6 +209,35 @@ export default function CRMDashboard() {
         >
           Start Sending Mail
         </button>
+      </div>
+
+      {/* Bulk Queries Section */}
+      <div className="bg-gray-800 p-4 rounded-lg border border-gray-700 flex flex-col sm:flex-row items-center gap-4">
+        <div className="flex-1 flex gap-2 w-full items-center">
+          <span className="text-gray-400 text-sm font-medium whitespace-nowrap">Bulk Scraping:</span>
+          <button 
+            onClick={handleFetchQueries}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm font-medium transition-colors whitespace-nowrap"
+          >
+            Fetch Queries {loadedQueries.length > 0 && `(${loadedQueries.length})`}
+          </button>
+          <div className="flex items-center space-x-2">
+            <label className="text-sm text-gray-400 whitespace-nowrap">Target Leads:</label>
+            <input 
+              type="number"
+              value={targetLeads}
+              onChange={e => setTargetLeads(Number(e.target.value))}
+              className="w-24 bg-gray-900 border border-gray-700 text-white rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <button 
+            onClick={handleStartBulkCampaign}
+            disabled={actionLoading || loadedQueries.length === 0}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-colors whitespace-nowrap"
+          >
+            Start Bulk Campaign
+          </button>
+        </div>
       </div>
 
       {/* Batch actions */}
