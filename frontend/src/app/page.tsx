@@ -1,6 +1,5 @@
-"use client";
 import { useEffect, useState } from 'react';
-import { fetchLeads, startScraping, startBulkSending, stopScraping, enrichAllLeads, sendAllLeads, deleteAllLeads, fetchQueries, startAutomate } from '../lib/api';
+import { fetchLeads, startScraping, startBulkSending, stopScraping, enrichAllLeads, sendAllLeads, deleteAllLeads, fetchQueries, startAutomate, fetchProgress, AutomationProgress } from '../lib/api';
 import CompanyTable, { Company } from '../components/CompanyTable';
 
 export default function CRMDashboard() {
@@ -13,6 +12,24 @@ export default function CRMDashboard() {
   const [actionLoading, setActionLoading] = useState(false);
   const [targetLeads, setTargetLeads] = useState<number>(1000);
   const [loadedQueries, setLoadedQueries] = useState<string[]>([]);
+  const [progress, setProgress] = useState<AutomationProgress | null>(null);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    const pollProgress = async () => {
+      try {
+        const data = await fetchProgress();
+        setProgress(data);
+      } catch (err) {
+        console.error("Failed to fetch progress", err);
+      }
+    };
+    
+    pollProgress(); // initial poll
+    interval = setInterval(pollProgress, 5000); // poll every 5s
+
+    return () => clearInterval(interval);
+  }, []);
 
   const loadData = async () => {
     setLoading(true);
@@ -265,6 +282,48 @@ export default function CRMDashboard() {
           </button>
         </div>
       </div>
+
+      {/* Progress Tracker UI */}
+      {progress && progress.is_running && (
+        <div className="bg-gray-800 p-4 rounded-lg border border-purple-500 shadow-md shadow-purple-900/20">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-bold text-purple-400 flex items-center gap-2">
+              <span className="animate-pulse">⚡</span> Automation Running
+            </h3>
+            <span className="text-xs font-semibold px-2 py-1 bg-gray-900 rounded-full text-gray-300 capitalize border border-gray-700">
+              Stage: {progress.current_stage}
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-gray-400">Leads Generated</span>
+                <span className="font-medium text-white">{progress.leads_generated} / {progress.target_leads || '?'}</span>
+              </div>
+              <div className="w-full bg-gray-900 rounded-full h-2">
+                <div 
+                  className="bg-blue-500 h-2 rounded-full transition-all duration-500" 
+                  style={{ width: `${progress.target_leads ? Math.min(100, (progress.leads_generated / progress.target_leads) * 100) : 0}%` }}
+                ></div>
+              </div>
+            </div>
+            
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-gray-400">Emails Sent</span>
+                <span className="font-medium text-white">{progress.emails_sent} / {progress.target_leads || '?'}</span>
+              </div>
+              <div className="w-full bg-gray-900 rounded-full h-2">
+                <div 
+                  className="bg-green-500 h-2 rounded-full transition-all duration-500" 
+                  style={{ width: `${progress.target_leads ? Math.min(100, (progress.emails_sent / progress.target_leads) * 100) : 0}%` }}
+                ></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Batch actions */}
       <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
