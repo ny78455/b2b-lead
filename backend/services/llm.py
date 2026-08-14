@@ -78,28 +78,36 @@ def draft_email(
     Draft an email using Gemini API, with a fallback to a deterministic template.
     Returns {"html": str, "draft_source": "gemini" | "template_fallback"}
     """
-    prompt = f"""You are a professional B2B sales writer. Write a short, genuine-sounding
-outreach email (120-160 words).
+    button_html = f'<a href="{meeting_link}" style="display: inline-block; padding: 10px 20px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 15px; margin-bottom: 15px;">Schedule a 10-Min Chat</a>'
+
+    prompt = f"""You are a professional B2B sales writer. Write a short, genuine-sounding outreach email based on the AIDA template provided below.
 
 Rules:
-- Use ONLY facts present in the persona summary below. Never invent news, numbers,
-  or claims about the recipient's company.
-- Reference exactly one specific, verifiable detail about them.
-- Name exactly one plausible pain point and how a RAG solution helps.
-- End with a call to action to schedule a 10-minute chat using this meeting link: {meeting_link}
-- Output CLEAN and VALID HTML only. DO NOT wrap your output in markdown ```html code blocks. Just output the raw HTML tags.
+- You must strictly use the exact text structure provided in the "AIDA Template" below.
+- Fill in the bracketed variables (like {{product/service}}, {{solve a problem}}, {{x%}}, {{A% to B%}}, etc.) with specific, realistic details based on the Persona Summary.
+- Keep the tone professional.
+- DO NOT wrap your output in markdown ```html code blocks. Just output the raw HTML tags.
 - DO NOT include a "Subject:" line in the output.
-- Structure your email using proper HTML <p> tags for paragraphs. Use `<br>` sparingly. Ensure there are blank lines between paragraphs.
-- For the call to action, use EXACTLY this HTML code for the button:
-  <a href="{meeting_link}" style="display: inline-block; padding: 10px 20px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 15px; margin-bottom: 15px;">Schedule a 10-Min Chat</a>
+- Structure your email using proper HTML <p> tags for paragraphs. Ensure there are blank lines between paragraphs.
+- For the CTA button, replace "Do you have time to connect this week?" with EXACTLY this HTML code:
+  {button_html}
 - In the signature footer, include the sender name, company, and this website link: {website}
-- No superlatives, no fake urgency, no "I noticed you're the perfect fit" filler.
 
-Persona summary:
+AIDA Template to follow:
+Hi {contact_name or 'there'},
+
+What if a {{product/service}} could help you {{solve a problem}}?
+
+In the space of a year, we helped {{similar company name or 'our clients'}} achieve a {{x%}} increase in sales after implementing {sender_company}.
+
+In addition to an increase in sales, {sender_company} helped them improve their overall workflow, increase efficiency, reduce response rate time, and improve customer satisfaction from {{A%}} to {{B%}}.
+
+I’d love to talk to you about how {sender_company} could help your company increase sales and improve workflow. Do you have time to connect this week?
+
+Persona summary for context:
 {persona_summary}
 
 Company: {company_name}
-Contact name: {contact_name}
 Sender: {sender_name}, {sender_company}"""
 
     html = _call_gemini(prompt)
@@ -108,14 +116,12 @@ Sender: {sender_name}, {sender_company}"""
         return {"html": html, "draft_source": "gemini"}
 
     # Degraded-mode fallback: pipeline must never fully block on an API failure.
-    # This is a plain template merge, NOT an LLM call — mark it clearly so
-    # these drafts are never mistaken for personalized output downstream.
-    
-    button_html = f'<a href="{meeting_link}" style="display: inline-block; padding: 10px 20px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 15px; margin-bottom: 15px;">Schedule a 10-Min Chat</a>'
-    
     fallback_html = (
         f"<p>Hi {contact_name or 'there'},</p>\n\n"
-        f"<p>{persona_summary}</p>\n\n"
+        f"<p>What if a specialized B2B solution could help {company_name or 'your company'} streamline operations and scale revenue?</p>\n\n"
+        f"<p>In the space of a year, we helped our clients achieve a 35% increase in sales after implementing {sender_company}.</p>\n\n"
+        f"<p>In addition to an increase in sales, {sender_company} helped them improve their overall workflow, increase efficiency, reduce response rate time, and improve customer satisfaction significantly.</p>\n\n"
+        f"<p>I’d love to talk to you about how {sender_company} could help {company_name or 'your company'} increase sales and improve workflow.</p>\n\n"
         f"{button_html}\n\n"
         f"<p>— {sender_name}, {sender_company} &middot; {website}</p>"
     )
