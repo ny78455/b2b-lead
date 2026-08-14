@@ -133,6 +133,25 @@ class AutomateRequest(BaseModel):
     target_leads: int
     timeout_minutes: Optional[int] = 10
 
+def _run_scraper_sync(queries: List[str], target_leads: int, timeout_minutes: Optional[int]):
+    """
+    Run the scraper in a separate thread with its own event loop.
+    Required on Windows because Playwright needs ProactorEventLoop to spawn
+    browser subprocesses, but Uvicorn workers use SelectorEventLoop.
+    """
+    import sys
+    if sys.platform == "win32":
+        loop = asyncio.ProactorEventLoop()
+    else:
+        loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(run_scraper(queries, target_leads, timeout_minutes))
+    except Exception as exc:
+        logger.error("Scraper thread error in automation flow: %s", exc)
+    finally:
+        loop.close()
+
 async def run_automate_task(request: AutomateRequest):
     """
     1. Scrape with timeout
@@ -144,7 +163,12 @@ async def run_automate_task(request: AutomateRequest):
     
     # 1. Scrape
     try:
-        await run_scraper(request.queries, target_leads=request.target_leads, timeout_minutes=request.timeout_minutes)
+        await asyncio.to_thread(
+            _run_scraper_sync, 
+            request.queries, 
+            request.target_leads, 
+            request.timeout_minutes
+        )
     except Exception as e:
         logger.error(f"Scraper error in automation flow: {e}")
     
