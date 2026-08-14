@@ -39,19 +39,20 @@ def _compute_rag_score(company: Company) -> tuple[int, str]:
     score = 0
     fired = []
 
-    if any(kw in text for kw in _DOCS_HEAVY_KEYWORDS):
+    import re
+    if any(re.search(rf"\b{re.escape(kw)}\b", text) for kw in _DOCS_HEAVY_KEYWORDS):
         score += RAG_SCORE_WEIGHTS["docs_heavy"]
         fired.append("docs-heavy")
-    if any(kw in text for kw in _AI_SIGNAL_KEYWORDS):
+    if any(re.search(rf"\b{re.escape(kw)}\b", text) for kw in _AI_SIGNAL_KEYWORDS):
         score += RAG_SCORE_WEIGHTS["ai_signals"]
         fired.append("existing AI signals")
-    if any(kw in industry for kw in _HIGH_COMPLIANCE_INDUSTRIES):
+    if any(re.search(rf"\b{re.escape(kw)}\b", industry) for kw in _HIGH_COMPLIANCE_INDUSTRIES):
         score += RAG_SCORE_WEIGHTS["compliance_industry"]
         fired.append("compliance-heavy industry")
-    if any(kw in text for kw in _LARGE_DOC_KEYWORDS):
+    if any(re.search(rf"\b{re.escape(kw)}\b", text) for kw in _LARGE_DOC_KEYWORDS):
         score += RAG_SCORE_WEIGHTS["large_document_signals"]
         fired.append("large document footprint")
-    if any(kw in text for kw in _SUPPORT_TEAM_KEYWORDS):
+    if any(re.search(rf"\b{re.escape(kw)}\b", text) for kw in _SUPPORT_TEAM_KEYWORDS):
         score += RAG_SCORE_WEIGHTS["support_team_signals"]
         fired.append("dedicated support team")
 
@@ -93,8 +94,9 @@ def _compute_purchase_score(company: Company) -> int:
     employees = (company.employees_estimate or "").lower()
     rag = company.rag_score or 0
 
+    import re
     # Signal: AI/ML hiring detected in tech stack hints
-    if any(kw in tech for kw in _AI_HIRING_KEYWORDS):
+    if any(re.search(rf"\b{re.escape(kw)}\b", tech) for kw in _AI_HIRING_KEYWORDS):
         score += PURCHASE_SCORE_WEIGHTS["hiring_ai_role"]
 
     # Signal: RAG score is high (≥ 70)
@@ -102,11 +104,11 @@ def _compute_purchase_score(company: Company) -> int:
         score += PURCHASE_SCORE_WEIGHTS["rag_score_high"]
 
     # Signal: Tech stack mentions LLM tools
-    if any(kw in tech for kw in _LLM_TOOL_KEYWORDS):
+    if any(re.search(rf"\b{re.escape(kw)}\b", tech) for kw in _LLM_TOOL_KEYWORDS):
         score += PURCHASE_SCORE_WEIGHTS["tech_stack_llm"]
 
     # Signal: Company is support- or docs-heavy
-    if any(kw in summary for kw in _DOCS_HEAVY_KEYWORDS):
+    if any(re.search(rf"\b{re.escape(kw)}\b", summary) for kw in _DOCS_HEAVY_KEYWORDS):
         score += PURCHASE_SCORE_WEIGHTS["support_or_docs_heavy"]
 
     # Signal: Company size in SMB target range (5-500 employees)
@@ -114,7 +116,7 @@ def _compute_purchase_score(company: Company) -> int:
         score += PURCHASE_SCORE_WEIGHTS["company_size_target"]
 
     # Signal: High-compliance industry
-    if any(kw in industry for kw in _HIGH_COMPLIANCE_INDUSTRIES):
+    if any(re.search(rf"\b{re.escape(kw)}\b", industry) for kw in _HIGH_COMPLIANCE_INDUSTRIES):
         score += PURCHASE_SCORE_WEIGHTS["high_compliance_industry"]
 
     return min(score, 100)   # cap at 100

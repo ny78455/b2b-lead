@@ -19,7 +19,10 @@ def test_is_scraping_allowed_permitted():
 async def test_enrich_company_robots_txt_disallowed():
     db_mock = AsyncMock()
     company = Company(id="00000000-0000-0000-0000-000000000000", website="example.com")
-    db_mock.execute.return_value.scalar_one_or_none.return_value = company
+    from unittest.mock import MagicMock
+    result_mock = MagicMock()
+    result_mock.scalar_one_or_none.return_value = company
+    db_mock.execute.return_value = result_mock
 
     with patch('backend.services.enrichment._is_scraping_allowed', return_value=False):
         res = await enrich_company(str(company.id), db_mock)
