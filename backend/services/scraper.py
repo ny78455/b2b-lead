@@ -123,10 +123,13 @@ async def extract_business_data(page, url):
 
     return data
 
-async def run_scraper(search_queries: list[str], target_leads: int | None = None):
+async def run_scraper(search_queries: list[str], target_leads: int | None = None, timeout_minutes: int | None = None):
     global STOP_SCRAPING
     STOP_SCRAPING = False
     
+    import time
+    start_time = time.time()
+
     logger.info(f"Starting scraper for queries: {search_queries}")
     worksheet, existing_urls, query_success_counts = setup_google_sheets()
     if not worksheet:
@@ -154,6 +157,12 @@ async def run_scraper(search_queries: list[str], target_leads: int | None = None
             if target_leads is not None and session_leads_gathered >= target_leads:
                 logger.info(f"Reached global target of {target_leads} leads. Stopping scraper.")
                 break
+            if timeout_minutes is not None:
+                elapsed_minutes = (time.time() - start_time) / 60
+                if elapsed_minutes > timeout_minutes:
+                    logger.info(f"Scraper timeout reached ({timeout_minutes} mins). Stopping.")
+                    break
+
             if STOP_SCRAPING:
                 logger.info("Scraping stopped by user.")
                 break
@@ -217,6 +226,11 @@ async def run_scraper(search_queries: list[str], target_leads: int | None = None
             logger.info(f"Gathered {len(urls_to_check)} new URLs.")
 
             for url in urls_to_check:
+                if timeout_minutes is not None:
+                    if (time.time() - start_time) / 60 > timeout_minutes:
+                        logger.info("Scraping stopped due to timeout during extraction.")
+                        break
+
                 if STOP_SCRAPING:
                     logger.info("Scraping stopped by user during extraction.")
                     break
