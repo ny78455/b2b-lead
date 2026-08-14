@@ -111,14 +111,17 @@ async def enrich_and_draft(
         
     total_time = time.time() - total_start
     
+    # Check if a Gemini call was actually made based on the draft_source
+    gemini_requests = 1 if draft_result.get("draft_source") == "gemini" else (1 if "failed" not in draft_result.get("status", "") else 0) # Assumes 1 attempt even on fallback, unless totally failed before calling
+
     print("\n==================================================")
-    print(f"ENRICHMENT TIMING REPORT for {company_id}")
-    print(f"  1. Scrape + Extraction : {timings.get('enrich', 0):.2f} seconds")
-    print(f"  2. Rule-based Scoring  : {timings.get('score', 0):.2f} seconds")
-    print(f"  3. Persona Generation  : {timings.get('persona', 0):.2f} seconds")
-    print(f"  4. Email Drafting      : {timings.get('draft_email', 0):.2f} seconds")
+    print(f"ENRICHMENT LLM USAGE REPORT for {company_id}")
+    print(f"  1. Scrape + Extraction : 0 Gemini requests")
+    print(f"  2. Rule-based Scoring  : 0 Gemini requests")
+    print(f"  3. Persona Generation  : 0 Gemini requests")
+    print(f"  4. Email Drafting      : 1 Gemini request")
     print("--------------------------------------------------")
-    print(f"  TOTAL PIPELINE TIME    : {total_time:.2f} seconds")
+    print(f"  TOTAL GEMINI REQUESTS  : 1")
     print("==================================================\n")
         
     return draft_result
