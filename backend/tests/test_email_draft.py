@@ -12,6 +12,22 @@ async def test_generate_draft_includes_unsubscribe():
         name="Test Corp",
         persona_summary="A cool company."
     )
+    contact = Contact(
+        id="11111111-1111-1111-1111-111111111111",
+        name="John",
+        email="john@test.com"
+    )
+    
+    # First execute returns company, second returns contact
+    result_mock = MagicMock()
+    result_mock.scalar_one_or_none.side_effect = [company, contact]
+    db_mock.execute.return_value = result_mock
+    
+    # Mock LLM to return dictionary
+    with patch('backend.services.llm.draft_email', return_value={"html": "<p>Hi John,</p><p>Buy our stuff. {{unsubscribe_link}}</p>", "draft_source": "gemini"}):
+        res = await generate_draft(str(company.id), db_mock)
+        
+        assert res["status"] == "done"
         
         # Check that the campaign was created and added to the session
         added_campaign = db_mock.add.call_args[0][0]
