@@ -13,6 +13,44 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U b2b_user -d b2b"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: b2b_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Override the DB URL to point to the docker 'postgres' service instead of localhost
+      - DATABASE_URL=postgresql+asyncpg://b2b_user:b2b_pass@postgres:5432/b2b
+    # Mount .env so the container always has the latest API keys without rebuilding
+    volumes:
+      - ./backend/.env:/app/backend/.env
+      - ./scraped_history.txt:/app/scraped_history.txt
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: b2b_frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      # Explicitly tell Next.js where the backend API lives on the client side
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
 
 volumes:
   postgres_data:
