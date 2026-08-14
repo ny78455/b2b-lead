@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from backend.models import Campaign, Company, Contact
-from backend.services.suppression import is_suppressed, SuppressionError
+from backend.services.suppression import is_suppressed, add_to_suppression, SuppressionError
 from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -197,6 +197,9 @@ async def send_campaign(campaign_id: str, db: AsyncSession) -> dict:
         company = company_result.scalar_one_or_none()
         if company:
             company.status = "sent"
+
+        # Add to suppression list to prevent emailing them in future runs
+        await add_to_suppression(recipient_email, "emailed", db)
 
         await db.commit()
         logger.info(

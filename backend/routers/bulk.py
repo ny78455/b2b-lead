@@ -178,7 +178,7 @@ async def run_automate_task(request: AutomateRequest):
             _run_scraper_sync, 
             request.queries, 
             request.target_leads, 
-            request.timeout_minutes
+            None # Pass None for timeout so it scrapes ALL desired leads first
         )
     except Exception as e:
         logger.error(f"Scraper error in automation flow: {e}")
