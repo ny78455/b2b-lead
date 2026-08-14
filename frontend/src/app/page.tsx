@@ -1,3 +1,4 @@
+"use client";
 import { useEffect, useState } from 'react';
 import { fetchLeads, startScraping, startBulkSending, stopScraping, enrichAllLeads, sendAllLeads, deleteAllLeads, fetchQueries, startAutomate, fetchProgress, AutomationProgress } from '../lib/api';
 import CompanyTable, { Company } from '../components/CompanyTable';
