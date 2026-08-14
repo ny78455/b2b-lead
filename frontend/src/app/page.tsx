@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { fetchLeads, startScraping, startBulkSending, stopScraping, enrichAllLeads, sendAllLeads, deleteAllLeads, fetchQueries } from '../lib/api';
+import { fetchLeads, startScraping, startBulkSending, stopScraping, enrichAllLeads, sendAllLeads, deleteAllLeads, fetchQueries, startAutomate } from '../lib/api';
 import CompanyTable, { Company } from '../components/CompanyTable';
 
 export default function CRMDashboard() {
@@ -77,6 +77,25 @@ export default function CRMDashboard() {
       alert(`Bulk campaign started for ${targetLeads} target leads using ${loadedQueries.length} queries.`);
     } catch (err: any) {
       alert(`Error starting bulk campaign: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleStartAutomate = async () => {
+    if (loadedQueries.length === 0) {
+      alert("Please fetch queries first.");
+      return;
+    }
+    if (!confirm("⚠️ This will scrape, enrich, draft, and SEND emails fully automatically.\n\nOnce completed, ALL LEADS will be deleted from the database and the Google Sheet will be cleared.\n\nAre you sure you want to run this full automation?")) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await startAutomate(loadedQueries, targetLeads);
+      alert(`Full automated pipeline started for ${targetLeads} target leads!\n\nThis will take a while. Sit back and relax.`);
+    } catch (err: any) {
+      alert(`Error starting automation: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -236,6 +255,13 @@ export default function CRMDashboard() {
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-colors whitespace-nowrap"
           >
             Start Bulk Campaign
+          </button>
+          <button 
+            onClick={handleStartAutomate}
+            disabled={actionLoading || loadedQueries.length === 0}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-colors whitespace-nowrap shadow-lg shadow-purple-500/30"
+          >
+            ✨ Start Automate
           </button>
         </div>
       </div>
