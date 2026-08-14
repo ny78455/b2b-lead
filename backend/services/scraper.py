@@ -123,7 +123,7 @@ async def extract_business_data(page, url):
 
     return data
 
-async def run_scraper(search_queries: list[str]):
+async def run_scraper(search_queries: list[str], target_leads: int | None = None):
     global STOP_SCRAPING
     STOP_SCRAPING = False
     
@@ -144,16 +144,30 @@ async def run_scraper(search_queries: list[str]):
         )
         page = await context.new_page()
 
+        if target_leads is not None:
+            random.shuffle(search_queries)
+            logger.info(f"Shuffled {len(search_queries)} queries for bulk scraping, targeting {target_leads} leads.")
+        
+        session_leads_gathered = 0
+
         for query in search_queries:
+            if target_leads is not None and session_leads_gathered >= target_leads:
+                logger.info(f"Reached global target of {target_leads} leads. Stopping scraper.")
+                break
             if STOP_SCRAPING:
                 logger.info("Scraping stopped by user.")
                 break
 
-            current_successes = query_success_counts.get(query, 0)
-            target_needed = MAX_RESULTS_WITH_EMAIL - current_successes
+            if target_leads is not None:
+                # If target_leads is set, we still limit to 10 per query to spread them out, 
+                # but we bound it by the global target remaining.
+                target_needed = min(10, target_leads - session_leads_gathered)
+            else:
+                current_successes = query_success_counts.get(query, 0)
+                target_needed = MAX_RESULTS_WITH_EMAIL - current_successes
 
             if target_needed <= 0:
-                logger.info(f"Already have enough leads for '{query}'. Skipping.")
+                logger.info(f"Already have enough leads for '{query}' (or global target met). Skipping.")
                 continue
 
             logger.info(f"Scraping '{query}', need {target_needed} more emails.")
@@ -225,6 +239,7 @@ async def run_scraper(search_queries: list[str]):
                             extracted["url"]
                         ])
                         target_needed -= 1
+                        session_leads_gathered += 1
                         logger.info(f"Saved: {extracted['name']} - {extracted['email']}")
                         
                         # We also auto-sync to DB immediately

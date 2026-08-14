@@ -5,6 +5,7 @@ Only exactly one LLM call per lead is permitted: email drafting.
 Everything else is rule-based.
 """
 import logging
+import re
 from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,14 @@ def generate_queries(seed_niches: list[str], seed_locations: list[str], n: int =
 
 # ── 6. Email draft (Module 6) ─────────────────────────────────────────────────
 
+def _first_sentence(text: str) -> str:
+    """Grab the first real sentence out of persona_summary for the fallback path."""
+    if not text:
+        return ""
+    match = re.split(r"(?<=[.!?])\s+", text.strip())
+    return match[0].strip() if match else text.strip()
+
+
 def draft_email(
     persona_summary: str,
     company_name: str,
@@ -75,40 +84,53 @@ def draft_email(
     website: str,
 ) -> dict:
     """
-    Draft an email using Gemini API, with a fallback to a deterministic template.
+    Draft a personalized email using Gemini API, with a deterministic fallback
+    if the API call fails. The model is given the company's actual persona
+    data and freedom to write its own structure/angle — it is NOT locked into
+    reproducing the same sentence-for-sentence template on every lead.
+
     Returns {"html": str, "draft_source": "gemini" | "template_fallback"}
     """
-    button_html = f'<a href="{meeting_link}" style="display: inline-block; padding: 10px 20px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 15px; margin-bottom: 15px;">Schedule a 10-Min Chat</a>'
+    button_html = (
+        f'<a href="{meeting_link}" style="display: inline-block; padding: 10px 20px; '
+        f'background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px; '
+        f'font-weight: bold; margin-top: 15px; margin-bottom: 15px;">Schedule a 10-Min Chat</a>'
+    )
 
-    prompt = f"""You are a professional B2B sales writer. Write a short, genuine-sounding outreach email based on the AIDA template provided below.
+    prompt = f"""You are a professional B2B sales writer. Write a short, genuine-sounding
+outreach email (120-160 words) for the specific company below.
 
-Rules:
-- You must strictly use the exact text structure provided in the "AIDA Template" below.
-- Fill in the bracketed variables (like {{product/service}}, {{solve a problem}}, {{x%}}, {{A% to B%}}, etc.) with specific, realistic details based on the Persona Summary.
-- Keep the tone professional.
-- DO NOT wrap your output in markdown ```html code blocks. Just output the raw HTML tags.
-- DO NOT include a "Subject:" line in the output.
-- Structure your email using proper HTML <p> tags for paragraphs. Ensure there are blank lines between paragraphs.
-- For the CTA button, replace "Do you have time to connect this week?" with EXACTLY this HTML code:
-  {button_html}
-- In the signature footer, include the sender name, company, and this website link: {website}
-
-AIDA Template to follow:
-Hi {contact_name or 'there'},
-
-What if a {{product/service}} could help you {{solve a problem}}?
-
-In the space of a year, we helped {{similar company name or 'our clients'}} achieve a {{x%}} increase in sales after implementing {sender_company}.
-
-In addition to an increase in sales, {sender_company} helped them improve their overall workflow, increase efficiency, reduce response rate time, and improve customer satisfaction from {{A%}} to {{B%}}.
-
-I’d love to talk to you about how {sender_company} could help your company increase sales and improve workflow. Do you have time to connect this week?
-
-Persona summary for context:
+Persona summary (the ONLY facts you may reference about this company):
 {persona_summary}
 
 Company: {company_name}
-Sender: {sender_name}, {sender_company}"""
+Contact name: {contact_name or 'there'}
+Sender: {sender_name}, {sender_company}
+
+Rules:
+- Write original wording for THIS company — do not reuse boilerplate phrasing
+  you'd give any other lead. Two different companies with different personas
+  should read as genuinely different emails, not the same email with nouns
+  swapped.
+- Use ONLY facts present in the persona summary above. Never invent news,
+  statistics, client names, or percentage results that aren't given to you.
+  If the persona summary doesn't mention a stat, don't make one up — describe
+  the value proposition in plain terms instead.
+- Open by referencing one specific, real detail about {company_name} from the
+  persona summary (their industry, a signal you were given, whatever is most
+  concrete) — not a generic greeting.
+- Identify ONE plausible pain point for a company like this and explain, in
+  your own words, how a RAG-based knowledge/support solution addresses it.
+- No superlatives, no fake urgency, no "I noticed you're the perfect fit"
+  filler, no invented case studies.
+- End with a single, low-friction question inviting a reply or a quick chat.
+- Output CLEAN, VALID HTML only — no markdown code fences, no "Subject:" line.
+- Use <p> tags for paragraphs with blank lines between them.
+- Include this exact CTA button HTML once, placed naturally near the end,
+  in place of any closing question about scheduling:
+  {button_html}
+- In the signature footer, include the sender name, company, and this exact
+  website link: {website}"""
 
     html = _call_gemini(prompt)
     if html:
@@ -116,12 +138,20 @@ Sender: {sender_name}, {sender_company}"""
         return {"html": html, "draft_source": "gemini"}
 
     # Degraded-mode fallback: pipeline must never fully block on an API failure.
+    # This is a plain template merge, NOT an LLM call, so it leans on whatever
+    # real detail is available from persona_summary rather than staying fully
+    # generic — but it is still clearly marked as template_fallback so it's
+    # never mistaken for a personalized draft downstream.
+    hook = _first_sentence(persona_summary) or f"{company_name or 'your company'} looks like a strong fit for what we do."
+
     fallback_html = (
         f"<p>Hi {contact_name or 'there'},</p>\n\n"
-        f"<p>What if a specialized B2B solution could help {company_name or 'your company'} streamline operations and scale revenue?</p>\n\n"
-        f"<p>In the space of a year, we helped our clients achieve a 35% increase in sales after implementing {sender_company}.</p>\n\n"
-        f"<p>In addition to an increase in sales, {sender_company} helped them improve their overall workflow, increase efficiency, reduce response rate time, and improve customer satisfaction significantly.</p>\n\n"
-        f"<p>I’d love to talk to you about how {sender_company} could help {company_name or 'your company'} increase sales and improve workflow.</p>\n\n"
+        f"<p>{hook}</p>\n\n"
+        f"<p>That's usually the point where teams start losing time to repetitive "
+        f"questions and scattered documentation — which is exactly what a "
+        f"RAG-based knowledge assistant from {sender_company} is built to fix.</p>\n\n"
+        f"<p>Worth a quick look for {company_name or 'your team'}? I'd love to hear "
+        f"what's currently working and where it's falling short.</p>\n\n"
         f"{button_html}\n\n"
         f"<p>— {sender_name}, {sender_company} &middot; {website}</p>"
     )
