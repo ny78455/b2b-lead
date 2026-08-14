@@ -46,7 +46,7 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
     meeting_link = settings.CALENDAR_LINK
 
     # Call LLM to generate draft
-    draft_html = llm.draft_email(
+    draft_result = llm.draft_email(
         persona_summary=company.persona_summary,
         company_name=company.name,
         contact_name=contact_name,
@@ -55,6 +55,9 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
         meeting_link=meeting_link,
         website="https://www.vantrade.online/",
     )
+
+    draft_html = draft_result.get("html")
+    draft_source = draft_result.get("draft_source")
 
     if not draft_html:
         return {"status": "failed", "message": "LLM failed to generate email draft."}
@@ -86,6 +89,7 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
         contact_id=contact.id if contact else None,
         subject=subject,
         draft_html=draft_html,
+        draft_source=draft_source,
         status="pending_review",
     )
     db.add(campaign)
