@@ -125,18 +125,26 @@ export async function fetchReplies() {
   return res.json();
 }
 
-export async function startScraping(queries: string[]) {
+export const startScraping = async (queries: string[], targetLeads?: number) => {
+  const payload: any = { queries };
+  if (targetLeads !== undefined) {
+    payload.target_leads = targetLeads;
+  }
   const res = await fetch(`${API_BASE_URL}/scrape`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ queries }),
+    body: JSON.stringify(payload),
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.detail || 'Failed to start scraping');
-  }
+  if (!res.ok) throw new Error('Failed to start scraping');
   return res.json();
-}
+};
+
+export const fetchQueries = async (): Promise<string[]> => {
+  const res = await fetch(`${API_BASE_URL}/scrape/queries`);
+  if (!res.ok) throw new Error('Failed to load queries');
+  const data = await res.json();
+  return data.queries || [];
+};
 
 export async function startBulkSending() {
   const res = await fetch(`${API_BASE_URL}/bulk/send`, {
