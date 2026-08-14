@@ -23,11 +23,22 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.config import get_settings
 from backend.database import AsyncSessionLocal
 from backend.models import Campaign, Reply
-from backend.services import llm
 from sqlalchemy import select, update
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+def classify_reply(body: str) -> dict:
+    text = body.lower()
+
+    if any(p in text for p in ["out of office", "automatic reply", "auto-reply", "vacation responder"]):
+        return {"classification": "auto_reply_or_oof", "sentiment": "neutral"}
+    if any(p in text for p in ["unsubscribe", "not interested", "remove me", "stop emailing", "no thank you"]):
+        return {"classification": "not_interested", "sentiment": "negative"}
+    if any(p in text for p in ["schedule", "book a call", "demo", "sounds good", "let's talk", "interested", "sign me up"]):
+        return {"classification": "interested", "sentiment": "positive"}
+    # Default: ambiguous replies route to a human rather than being guessed at.
+    return {"classification": "needs_info", "sentiment": "neutral"}
 
 # Track processed message IDs to avoid double-classification
 _processed_imap_ids: set[str] = set()
@@ -123,9 +134,9 @@ async def _process_message(msg: email.message.Message, db: AsyncSession) -> None
 
     # Extract text and classify
     body = _extract_text(msg)
-    classification_result = llm.classify_reply(body)
-    classification = classification_result.get("classification") if classification_result else "needs_info"
-    sentiment = classification_result.get("sentiment") if classification_result else "neutral"
+    classification_result = classify_reply(body)
+    classification = classification_result.get("classification")
+    sentiment = classification_result.get("sentiment")
 
     from_email = msg.get("From", "")
 

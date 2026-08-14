@@ -1,7 +1,7 @@
 """
 services/persona.py — Module 5: Persona Summary Builder
 
-Generates a 3-5 sentence company persona using only verified enrichment data.
+Generates a company persona deterministically using only verified enrichment data.
 No facts are fabricated — if a field is null, it is excluded from the prompt.
 """
 import logging
@@ -9,9 +9,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from backend.models import Company
-from backend.services import llm
 
 logger = logging.getLogger(__name__)
+
+def build_persona_text(company: Company) -> str:
+    parts = [f"{company.name} operates in the {company.industry or 'unclassified'} industry."]
+    if company.employees_estimate:
+        parts.append(f"Estimated size: {company.employees_estimate}.")
+    if company.summary:
+        parts.append(company.summary)
+    if company.tech_stack_hints:
+        parts.append(f"Notable tech/tools mentioned on their site: {company.tech_stack_hints}.")
+    parts.append(f"RAG-fit score: {company.rag_score or 0}/100 — {company.rag_rationale or 'N/A'}")
+    parts.append(f"Purchase-intent score: {company.purchase_score or 0}/100.")
+    return " ".join(parts)
 
 
 async def build_persona(company_id: str, db: AsyncSession) -> dict:
@@ -28,8 +39,8 @@ async def build_persona(company_id: str, db: AsyncSession) -> dict:
     if company.enrichment_status != "done":
         return {"status": "failed", "message": "Company not yet enriched."}
 
-    # Persona summary is now generated during the unified Module 2 extraction step.
-    if not company.persona_summary:
-        return {"status": "failed", "message": "Persona summary was not populated during enrichment."}
+    # Generate the persona using deterministic template
+    company.persona_summary = build_persona_text(company)
+    await db.commit()
 
     return {"status": "done", "persona_summary": company.persona_summary}
