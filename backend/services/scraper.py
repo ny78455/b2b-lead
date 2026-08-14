@@ -10,6 +10,8 @@ import urllib.parse
 import re
 import logging
 import gspread
+import os
+import itertools
 from playwright.async_api import async_playwright
 
 from backend.config import get_settings
@@ -136,7 +138,17 @@ async def run_scraper(search_queries: list[str], target_leads: int | None = None
         logger.error("Failed to setup Google Sheets. Aborting scrape.")
         return
 
-    logger.info(f"Loaded {len(existing_urls)} previously scraped leads from Google Sheets.")
+    existing_emails = set()
+    history_file = os.path.join(os.path.dirname(__file__), "..", "scraped_history.txt")
+    if os.path.exists(history_file):
+        with open(history_file, "r") as f:
+            for line in f:
+                parts = line.strip().split("\t")
+                if len(parts) >= 2:
+                    existing_urls.add(parts[0])
+                    existing_emails.add(parts[1])
+
+    logger.info(f"Loaded {len(existing_urls)} previously scraped leads from history.")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -149,11 +161,14 @@ async def run_scraper(search_queries: list[str], target_leads: int | None = None
 
         if target_leads is not None:
             random.shuffle(search_queries)
+            query_iterator = itertools.cycle(search_queries)
             logger.info(f"Shuffled {len(search_queries)} queries for bulk scraping, targeting {target_leads} leads.")
+        else:
+            query_iterator = search_queries
         
         session_leads_gathered = 0
 
-        for query in search_queries:
+        for query in query_iterator:
             if target_leads is not None and session_leads_gathered >= target_leads:
                 logger.info(f"Reached global target of {target_leads} leads. Stopping scraper.")
                 break
@@ -242,6 +257,10 @@ async def run_scraper(search_queries: list[str], target_leads: int | None = None
                 existing_urls.add(url)
 
                 if extracted["email"] != "N/A" and extracted["name"] != "N/A":
+                    if extracted["email"] in existing_emails:
+                        logger.info(f"Skipping duplicate email across runs: {extracted['email']}")
+                        continue
+                        
                     try:
                         worksheet.append_row([
                             query,
@@ -255,6 +274,10 @@ async def run_scraper(search_queries: list[str], target_leads: int | None = None
                         target_needed -= 1
                         session_leads_gathered += 1
                         logger.info(f"Saved: {extracted['name']} - {extracted['email']}")
+                        
+                        existing_emails.add(extracted["email"])
+                        with open(history_file, "a") as f:
+                            f.write(f"{extracted['url']}\t{extracted['email']}\n")
                         
                         # We also auto-sync to DB immediately
                         await _sync_single_lead_to_db(query, extracted)
