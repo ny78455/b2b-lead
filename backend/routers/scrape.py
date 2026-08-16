@@ -72,13 +72,13 @@ async def stop_scraping():
 @router.get("/queries")
 async def get_queries():
     """
-    Returns the list of queries from queries.json.
+    Returns the days and their queries from queries.json.
     """
     try:
         queries_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "queries.json")
         with open(queries_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return {"queries": data.get("queries", [])}
+            return {"days": data.get("days", [])}
     except Exception as exc:
         logger.error("Failed to load queries.json: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to load queries.")
