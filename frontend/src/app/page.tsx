@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { fetchLeads, startScraping, startBulkSending, stopScraping, enrichAllLeads, sendAllLeads, deleteAllLeads, fetchQueries, startAutomate, fetchProgress, AutomationProgress } from '../lib/api';
+import { fetchLeads, startScraping, startBulkSending, stopScraping, enrichAllLeads, sendAllLeads, deleteAllLeads, fetchQueries, startAutomate, fetchProgress, AutomationProgress, DayQueries } from '../lib/api';
 import CompanyTable, { Company } from '../components/CompanyTable';
 
 export default function CRMDashboard() {
@@ -13,6 +13,8 @@ export default function CRMDashboard() {
   const [actionLoading, setActionLoading] = useState(false);
   const [targetLeads, setTargetLeads] = useState<number>(1000);
   const [loadedQueries, setLoadedQueries] = useState<string[]>([]);
+  const [availableDays, setAvailableDays] = useState<DayQueries[]>([]);
+  const [selectedDay, setSelectedDay] = useState<number | ''>('');
   const [progress, setProgress] = useState<AutomationProgress | null>(null);
 
   useEffect(() => {
@@ -76,11 +78,28 @@ export default function CRMDashboard() {
 
   const handleFetchQueries = async () => {
     try {
-      const queries = await fetchQueries();
-      setLoadedQueries(queries);
-      alert(`Loaded ${queries.length} queries successfully.`);
+      const days = await fetchQueries();
+      setAvailableDays(days);
+      if (days.length > 0) {
+        setSelectedDay(days[0].day);
+        setLoadedQueries(days[0].queries);
+        alert(`Loaded queries for ${days.length} days successfully.`);
+      } else {
+        alert('No queries found.');
+      }
     } catch (err: any) {
       alert(`Error loading queries: ${err.message}`);
+    }
+  };
+
+  const handleDayChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const day = Number(e.target.value);
+    setSelectedDay(day);
+    const dayData = availableDays.find(d => d.day === day);
+    if (dayData) {
+      setLoadedQueries(dayData.queries);
+    } else {
+      setLoadedQueries([]);
     }
   };
 
@@ -258,6 +277,19 @@ export default function CRMDashboard() {
           >
             Fetch Queries {loadedQueries.length > 0 && `(${loadedQueries.length})`}
           </button>
+          
+          {availableDays.length > 0 && (
+            <select
+              value={selectedDay}
+              onChange={handleDayChange}
+              className="bg-gray-900 border border-gray-700 text-white text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 block p-2 transition-colors"
+            >
+              {availableDays.map(d => (
+                <option key={d.day} value={d.day}>Day {d.day}</option>
+              ))}
+            </select>
+          )}
+
           <div className="flex items-center space-x-2">
             <label className="text-sm text-gray-400 whitespace-nowrap">Target Leads:</label>
             <input 
