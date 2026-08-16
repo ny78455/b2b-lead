@@ -139,11 +139,16 @@ export const startScraping = async (queries: string[], targetLeads?: number) => 
   return res.json();
 };
 
-export const fetchQueries = async (): Promise<string[]> => {
+export interface DayQueries {
+  day: number;
+  queries: string[];
+}
+
+export const fetchQueries = async (): Promise<DayQueries[]> => {
   const res = await fetch(`${API_BASE_URL}/scrape/queries`);
   if (!res.ok) throw new Error('Failed to load queries');
   const data = await res.json();
-  return data.queries || [];
+  return data.days || [];
 };
 
 export async function startBulkSending() {
