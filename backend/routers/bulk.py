@@ -158,102 +158,155 @@ def _run_scraper_sync(queries: List[str], target_leads: int, timeout_minutes: Op
     finally:
         loop.close()
 
+BATCH_SIZE = 50  # leads per scrape → enrich → send cycle
+
 async def run_automate_task(request: AutomateRequest):
     """
-    1. Scrape with timeout
-    2. Enrich & Draft all new leads
-    3. Approve & Send all pending campaigns
-    4. Delete all leads from DB and clear Google Sheet
+    Batched pipeline — repeats until target_leads are processed:
+      1. Scrape BATCH_SIZE leads
+      2. Enrich & Draft those leads
+      3. Approve & Send their campaigns
+      4. Cleanup batch from DB / Sheet
+    After all batches are done, do a final cleanup pass.
     """
     global automation_state
     automation_state["is_running"] = True
     automation_state["current_stage"] = "scraping"
     automation_state["target_leads"] = request.target_leads
-    
-    logger.info("Automation flow started.")
-    
-    # 1. Scrape
-    try:
-        await asyncio.to_thread(
-            _run_scraper_sync, 
-            request.queries, 
-            request.target_leads, 
-            None # Pass None for timeout so it scrapes ALL desired leads first
+
+    logger.info(
+        "Automation flow started — target %d leads in batches of %d.",
+        request.target_leads,
+        BATCH_SIZE,
+    )
+
+    total_sent = 0
+    remaining = request.target_leads
+
+    while remaining > 0:
+        batch_size = min(BATCH_SIZE, remaining)
+        logger.info(
+            "=== Batch start: scraping %d leads (total sent so far: %d) ===",
+            batch_size,
+            total_sent,
         )
-    except Exception as e:
-        logger.error(f"Scraper error in automation flow: {e}")
-    
-    # 2. Bulk Enrich
-    automation_state["current_stage"] = "enriching"
-    logger.info("Automation flow: Starting enrichment...")
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Company).where(Company.status == "new"))
-        companies = result.scalars().all()
-        for company in companies:
-            try:
-                await _run_full_pipeline(str(company.id), db)
-                await asyncio.sleep(1)
-            except Exception as e:
-                logger.error(f"Enrichment error for {company.name}: {e}")
 
-    # 3. Bulk Draft
-    automation_state["current_stage"] = "drafting"
-    logger.info("Automation flow: Starting drafting...")
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Company).where(Company.status == "enriched"))
-        companies = result.scalars().all()
-        for company in companies:
-            try:
-                await generate_draft(str(company.id), db)
-                await asyncio.sleep(1)
-            except Exception as e:
-                logger.error(f"Drafting error for {company.name}: {e}")
-
-    # 4. Bulk Send
-    automation_state["current_stage"] = "sending"
-    logger.info("Automation flow: Starting sending...")
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Campaign).where(Campaign.status == "pending_review"))
-        campaigns = result.scalars().all()
-        for campaign in campaigns:
-            try:
-                campaign.status = "approved"
-                await db.commit()
-                send_res = await send_campaign(str(campaign.id), db)
-                if send_res["status"] == "failed":
-                    campaign.status = "pending_review"
-                    await db.commit()
-                await asyncio.sleep(1)
-            except Exception as e:
-                logger.error(f"Send error for campaign {campaign.id}: {e}")
-
-    # 5. Cleanup
-    automation_state["current_stage"] = "cleanup"
-    logger.info("Automation flow: Starting cleanup...")
-    async with AsyncSessionLocal() as db:
+        # ── Step 1: Scrape one batch ──────────────────────────────────────────
+        automation_state["current_stage"] = "scraping"
         try:
-            # This will cascade and delete contacts & campaigns as well.
-            await db.execute(Company.__table__.delete())
-            await db.commit()
-            logger.info("Deleted all leads from the database.")
+            await asyncio.to_thread(
+                _run_scraper_sync,
+                request.queries,
+                batch_size,
+                None,  # no timeout — scrape exactly batch_size leads
+            )
         except Exception as e:
-            logger.error(f"Cleanup DB error: {e}")
+            logger.error("Scraper error in automation batch: %s", e)
 
-    try:
-        worksheet, _, _ = setup_google_sheets()
-        if worksheet:
-            # Delete all rows except the header
-            all_values = worksheet.get_all_values()
-            if len(all_values) > 1:
-                # Need to use clear and re-insert header or delete rows
-                worksheet.clear()
-                worksheet.append_row(["Search Query", "Business Name", "Phone Number", "Email", "Website URL", "Address", "Google Maps URL"])
-                logger.info("Cleared Google Sheet.")
-    except Exception as e:
-        logger.error(f"Cleanup Sheets error: {e}")
+        # ── Step 2: Enrich all 'new' companies from this batch ────────────────
+        automation_state["current_stage"] = "enriching"
+        logger.info("Batch: starting enrichment…")
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(Company).where(Company.status == "new"))
+            companies = result.scalars().all()
+            logger.info("Batch: %d companies to enrich.", len(companies))
+            for company in companies:
+                try:
+                    await _run_full_pipeline(str(company.id), db)
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    logger.error("Enrichment error for %s: %s", company.name, e)
 
-    logger.info("Automation flow completed successfully.")
-    
+        # ── Step 3: Draft all 'enriched' companies ────────────────────────────
+        automation_state["current_stage"] = "drafting"
+        logger.info("Batch: starting drafting…")
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(Company).where(Company.status == "enriched"))
+            companies = result.scalars().all()
+            logger.info("Batch: %d companies to draft.", len(companies))
+            for company in companies:
+                try:
+                    await generate_draft(str(company.id), db)
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    logger.error("Drafting error for %s: %s", company.name, e)
+
+        # ── Step 4: Approve & Send all pending campaigns ──────────────────────
+        automation_state["current_stage"] = "sending"
+        logger.info("Batch: starting sending…")
+        batch_sent = 0
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(Campaign).where(Campaign.status == "pending_review")
+            )
+            campaigns = result.scalars().all()
+            logger.info("Batch: %d campaigns to send.", len(campaigns))
+            for campaign in campaigns:
+                try:
+                    campaign.status = "approved"
+                    await db.commit()
+                    send_res = await send_campaign(str(campaign.id), db)
+                    if send_res["status"] == "failed":
+                        logger.error(
+                            "Send failed for campaign %s: %s",
+                            campaign.id,
+                            send_res.get("message"),
+                        )
+                        campaign.status = "pending_review"
+                        await db.commit()
+                    else:
+                        batch_sent += 1
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    logger.error("Send error for campaign %s: %s", campaign.id, e)
+
+        total_sent += batch_sent
+        remaining -= batch_sent
+        logger.info(
+            "=== Batch done: sent %d, total sent %d, remaining %d ===",
+            batch_sent,
+            total_sent,
+            remaining,
+        )
+
+        # ── Step 5: Cleanup this batch from DB & Google Sheet ─────────────────
+        automation_state["current_stage"] = "cleanup"
+        logger.info("Batch: cleaning up…")
+        async with AsyncSessionLocal() as db:
+            try:
+                await db.execute(Company.__table__.delete())
+                await db.commit()
+                logger.info("Batch: deleted all leads from the database.")
+            except Exception as e:
+                logger.error("Batch cleanup DB error: %s", e)
+
+        try:
+            worksheet, _, _ = setup_google_sheets()
+            if worksheet:
+                all_values = worksheet.get_all_values()
+                if len(all_values) > 1:
+                    worksheet.clear()
+                    worksheet.append_row(
+                        ["Search Query", "Business Name", "Phone Number",
+                         "Email", "Website URL", "Address", "Google Maps URL"]
+                    )
+                    logger.info("Batch: cleared Google Sheet.")
+        except Exception as e:
+            logger.error("Batch cleanup Sheets error: %s", e)
+
+        # Safety: if no emails were sent in this batch (all failed/blocked),
+        # break to avoid an infinite loop.
+        if batch_sent == 0:
+            logger.warning(
+                "No emails sent in this batch — stopping to avoid an infinite loop."
+            )
+            break
+
+    logger.info(
+        "Automation flow completed. Total emails sent: %d / %d requested.",
+        total_sent,
+        request.target_leads,
+    )
     automation_state["is_running"] = False
     automation_state["current_stage"] = "idle"
 
