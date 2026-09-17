@@ -328,17 +328,20 @@ def _render_html(
 
 async def generate_draft(company_id: str, db: AsyncSession) -> dict:
     """
-    Generate a professionally personalised HTML email draft for a company
-    using traditional NLP template merging — no LLM or external API required.
+    Generate a personalised HTML email draft for a company using Gemini API
+    (primary), with a deterministic template-based fallback if the API fails.
 
-    Personalisation is driven entirely by enrichment data:
-      - industry        → selects pain-point and value-proposition paragraph variants
-      - summary         → extracts the first meaningful sentence as the opener hook
-      - tech_stack_hints → adds an optional tool-mention paragraph
-      - rag_score       → influences subject line selection
+    Flow:
+      1. Load company + primary contact from DB.
+      2. Build a persona summary text from all enrichment signals.
+      3. Call llm_service.draft_email() → Gemini API generates the HTML body.
+         If the API call fails, llm_service.draft_email() itself falls back to
+         a plain-text template and marks draft_source = "template_fallback".
+      4. Choose a subject line using the same rule-based logic as before.
+      5. Persist as a Campaign with status = 'pending_review'.
 
-    Saves the result as a Campaign with status = 'pending_review'.
-    Returns { "status": "done"|"failed", "campaign_id": str, "subject": str }.
+    Returns { "status": "done"|"failed", "campaign_id": str, "subject": str,
+              "draft_source": "gemini"|"template_fallback" }.
     """
     # ── Load company ──────────────────────────────────────────────────────────
     result = await db.execute(select(Company).where(Company.id == company_id))
@@ -354,40 +357,32 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
         .limit(1)
     )
     contact = contact_result.scalar_one_or_none()
-    contact_name = (contact.name if (contact and contact.name) else "there")
+    contact_name = contact.name if (contact and contact.name) else "there"
 
-    # ── Gather enrichment signals ─────────────────────────────────────────────
-    industry     = company.industry          # e.g. "restaurant", "legal", None
-    summary      = company.summary           # meta-description / first two sentences
-    tech_stack   = company.tech_stack_hints  # e.g. "wordpress, shopify"
-    rag_score    = company.rag_score
-    company_name = company.name or "your business"
-
+    company_name   = company.name or "your business"
     meeting_link   = settings.CALENDAR_LINK
     sender_name    = settings.SENDER_NAME
     sender_company = settings.SENDER_COMPANY
     website        = "https://www.vantrade.online/"
 
-    # ── Build content blocks ──────────────────────────────────────────────────
-    opener     = _build_opener(company_name, industry, summary)
-    pain_point = _get_pain_point(industry)
-    value_prop = _get_value_prop(industry)
-    tech_note  = _build_tech_note(tech_stack)
-    subject    = _build_subject(company_name, industry, rag_score)
+    # ── Build persona summary (deterministic — no LLM) ────────────────────────
+    persona_summary = company.persona_summary or build_persona_text(company)
 
-    # ── Render HTML ───────────────────────────────────────────────────────────
-    draft_html = _render_html(
-        contact_name=contact_name,
+    # ── Draft via Gemini API (with built-in template fallback) ────────────────
+    draft_result = llm_service.draft_email(
+        persona_summary=persona_summary,
         company_name=company_name,
-        opener=opener,
-        pain_point=pain_point,
-        value_prop=value_prop,
-        tech_note=tech_note,
-        meeting_link=meeting_link,
+        contact_name=contact_name,
         sender_name=sender_name,
         sender_company=sender_company,
+        meeting_link=meeting_link,
         website=website,
     )
+    draft_html   = draft_result["html"]
+    draft_source = draft_result["draft_source"]   # "gemini" | "template_fallback"
+
+    # ── Choose subject line (rule-based) ──────────────────────────────────────
+    subject = _build_subject(company_name, company.industry, company.rag_score)
 
     # ── Persist campaign record ───────────────────────────────────────────────
     campaign = Campaign(
@@ -395,7 +390,7 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
         contact_id=contact.id if contact else None,
         subject=subject,
         draft_html=draft_html,
-        draft_source="template_nlp",
+        draft_source=draft_source,
         status="pending_review",
     )
     db.add(campaign)
@@ -405,7 +400,8 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
     await db.refresh(campaign)
 
     logger.info(
-        "Draft generated (template_nlp) for %s — subject: %s",
+        "Draft generated (%s) for %s — subject: %s",
+        draft_source,
         company_name,
         subject,
     )
@@ -413,4 +409,5 @@ async def generate_draft(company_id: str, db: AsyncSession) -> dict:
         "status": "done",
         "campaign_id": str(campaign.id),
         "subject": subject,
+        "draft_source": draft_source,
     }
