@@ -1,15 +1,14 @@
 """
-services/email_draft.py — Module 6: Email Draft Generation (Template-Based NLP)
+services/email_draft.py — Module 6: Email Draft Generation
 
-Generates a professional, personalised HTML email by merging enriched company
-data into a set of hand-crafted sentence blocks.  No external API is used —
-every field is selected deterministically based on what enrichment returned.
+Primary path  : Gemini API via services/llm.py → draft_email()
+Fallback path : Deterministic template-based HTML renderer (no external call)
 
 Pipeline:
   1. Load company + contact from DB.
-  2. Build email content blocks from all available enrichment fields.
-  3. Choose the best subject line variant based on available signals.
-  4. Render the HTML body by assembling paragraph blocks.
+  2. Build a persona summary from enrichment fields (persona.build_persona_text).
+  3. Call llm.draft_email() → Gemini API generates a personalised HTML email.
+  4. On API failure, fall back to the deterministic HTML template renderer.
   5. Persist as a Campaign with status = 'pending_review'.
 """
 import logging
@@ -20,6 +19,8 @@ from sqlalchemy import select
 
 from backend.models import Campaign, Company, Contact
 from backend.config import get_settings
+from backend.services import llm as llm_service
+from backend.services.persona import build_persona_text
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
